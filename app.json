@@ -1,15 +1,17 @@
 {
   "expo": {
-    "name": "bmg-shop-app",
+    "name": "BMG Shop",
     "slug": "bmg-shop-app",
     "version": "1.0.0",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
     "userInterfaceStyle": "light",
+    "backgroundColor": "#EEF0EC",
     "ios": {
       "supportsTablet": true
     },
     "android": {
+      "package": "com.eddy.bmgshop",
       "adaptiveIcon": {
         "backgroundColor": "#E6F4FE",
         "foregroundImage": "./assets/android-icon-foreground.png",
@@ -20,6 +22,9 @@
     },
     "web": {
       "favicon": "./assets/favicon.png"
-    }
+    },
+    "plugins": [
+      "expo-sqlite"
+    ]
   }
 }

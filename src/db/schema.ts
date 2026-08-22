@@ -1,0 +1,126 @@
+// Core schema — spec Part B §8 (starting point, "refine per section" as each
+// section spec is actually built; see comments below on what's deliberately
+// deferred to its owning section).
+//
+// Conventions applied to every synced table (tech spec §8, §3):
+//   id            TEXT PK, UUID generated on-device (src/lib/uuid.ts)
+//   business_id   TEXT, scopes every row to one shop (multi-shop reuse, §6)
+//   synced        INTEGER 0/1, flips to 1 once pushed to Supabase (offline sync, §3)
+//   created_at / updated_at   TEXT ISO-8601 timestamps
+//
+// G1 (never store a computed balance/count) means this file intentionally has
+// NO "balance", "owed", "in_stock" etc. columns anywhere. Those are always
+// derived at read time from the rows below.
+
+export const SCHEMA_STATEMENTS: string[] = [
+  `PRAGMA foreign_keys = ON;`,
+
+  // One row per shop. Minimal — no billing/tenant-admin fields (spec Part A §1, §6).
+  `CREATE TABLE IF NOT EXISTS businesses (
+    id TEXT PRIMARY KEY NOT NULL,
+    name TEXT NOT NULL,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+    synced INTEGER NOT NULL DEFAULT 0
+  );`,
+
+  // The name-picker roster (spec Part B §5). No passwords — see CLAUDE.md Security.
+  `CREATE TABLE IF NOT EXISTS staff (
+    id TEXT PRIMARY KEY NOT NULL,
+    business_id TEXT NOT NULL REFERENCES businesses(id),
+    name TEXT NOT NULL,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+    synced INTEGER NOT NULL DEFAULT 0
+  );`,
+
+  // Device-local only, never synced: which staff member this physical phone
+  // belongs to (set once by the first-launch name picker). Single row per
+  // install. Spec Part C §1 §2 "Identity context" (CURRENT_STAFF).
+  `CREATE TABLE IF NOT EXISTS device_identity (
+    id INTEGER PRIMARY KEY CHECK (id = 1),
+    staff_id TEXT REFERENCES staff(id),
+    business_id TEXT REFERENCES businesses(id)
+  );`,
+
+  // Customer tabs (spec Part C §1 §3). is_quick_sale marks the single pinned
+  // Quick Sale tab; there should only ever be one such row per business.
+  `CREATE TABLE IF NOT EXISTS customers (
+    id TEXT PRIMARY KEY NOT NULL,
+    business_id TEXT NOT NULL REFERENCES businesses(id),
+    name TEXT NOT NULL,
+    is_quick_sale INTEGER NOT NULL DEFAULT 0,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+    synced INTEGER NOT NULL DEFAULT 0
+  );`,
+
+  // A sale (spec Part C §1 §5, §7). note is the one mutable field (G4);
+  // everything else is written once and never edited (append-only, G5).
+  `CREATE TABLE IF NOT EXISTS sales (
+    id TEXT PRIMARY KEY NOT NULL,
+    business_id TEXT NOT NULL REFERENCES businesses(id),
+    customer_id TEXT NOT NULL REFERENCES customers(id),
+    staff_id TEXT NOT NULL REFERENCES staff(id),
+    cash_amount REAL NOT NULL DEFAULT 0,
+    credit_amount REAL NOT NULL DEFAULT 0,
+    note TEXT,
+    receipt_photo_local_path TEXT,
+    receipt_photo_cloud_url TEXT,
+    sold_at TEXT NOT NULL,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+    synced INTEGER NOT NULL DEFAULT 0
+  );`,
+  `CREATE INDEX IF NOT EXISTS idx_sales_sold_at ON sales(sold_at DESC);`,
+  `CREATE INDEX IF NOT EXISTS idx_sales_customer ON sales(customer_id);`,
+
+  // One row per commodity line within a sale (spec Part C §1 §5, §7).
+  // commodity_type: cylinder | airtime | burner | cooker.
+  // empties_returned is only meaningful for commodity_type = 'cylinder'; it is
+  // the count handed over AT SALE TIME (spec §5 CYLINDER picker). Later,
+  // partial returns of the remainder are their own dated events — see
+  // empty_returns below, added when the Debts section (build order #2) is
+  // implemented, not here, to match that section's exact return-flow spec.
+  `CREATE TABLE IF NOT EXISTS sale_items (
+    id TEXT PRIMARY KEY NOT NULL,
+    business_id TEXT NOT NULL REFERENCES businesses(id),
+    sale_id TEXT NOT NULL REFERENCES sales(id),
+    commodity_type TEXT NOT NULL CHECK (commodity_type IN ('cylinder','airtime','burner','cooker')),
+    label TEXT NOT NULL,
+    brand_or_supplier TEXT,
+    size_or_denomination TEXT,
+    qty INTEGER NOT NULL,
+    unit_price REAL NOT NULL,
+    is_auto_priced INTEGER NOT NULL DEFAULT 0,
+    empties_returned INTEGER,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+    synced INTEGER NOT NULL DEFAULT 0
+  );`,
+  `CREATE INDEX IF NOT EXISTS idx_sale_items_sale ON sale_items(sale_id);`,
+
+  // The editable catalog (spec Part C §6 §2). Seeded from src/catalog/seed.ts
+  // on first launch. active supports soft-hide (never hard-delete an item
+  // already referenced by immutable history — spec open item, Part C §6 §9).
+  `CREATE TABLE IF NOT EXISTS catalog_items (
+    id TEXT PRIMARY KEY NOT NULL,
+    business_id TEXT NOT NULL REFERENCES businesses(id),
+    kind TEXT NOT NULL,
+    value TEXT NOT NULL,
+    active INTEGER NOT NULL DEFAULT 1,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+    synced INTEGER NOT NULL DEFAULT 0
+  );`,
+  `CREATE INDEX IF NOT EXISTS idx_catalog_items_kind ON catalog_items(kind);`,
+];
+
+// Deliberately NOT created here yet — each is owned by a section spec later
+// in the build order (see CLAUDE.md "Build order") and will be added, matched
+// exactly to that section's spec, when that section is built:
+//   - repayments (Debts §4): a dated repayment event against ONE specific debt (sale).
+//   - empty_returns (Debts §5): a dated partial-return event against ONE cylinder sale_item.
+//   - stock_events (Refilling §10 RETRO-NOTE / G2): the shared ledger —
+//       opening-count | received | sent | returned-from-refill | sold | manual-add.
+//   - refilling companies / batches / batch_lines / batch photos / batch returns (Refilling §2-9).
