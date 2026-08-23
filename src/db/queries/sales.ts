@@ -18,6 +18,14 @@ export interface NewSaleInput {
 // Writes a sale, its items, and the stock/empties ledger events it causes —
 // all in ONE local transaction, entirely offline (G8: expo-sqlite is the
 // source of truth, nothing here touches the network or can fail on no signal).
+// Either the whole sale lands or none of it does, so the ledger can never end
+// up holding a `sold` event for a sale that isn't there.
+//
+// Note for later sections: withTransactionAsync is atomic but NOT exclusive —
+// expo-sqlite allows other async queries to interleave into it. That is fine
+// here because a save is one user action on one device with no other writer
+// running. If a future section introduces genuinely concurrent writes, it
+// wants withExclusiveTransactionAsync, not this.
 //
 // Attribution is automatic (G6): staffId comes from this phone's identity, and
 // sold_at is stamped here, so the shopkeeper taps neither.

@@ -193,14 +193,21 @@ export function AddSaleScreen({ route, navigation }: Props) {
   const nameMissing = isNewTab && customerName.trim().length === 0;
 
   const goToPayment = useCallback(() => {
+    // Moving on mid-edit is another way of walking away from that edit, so the
+    // pulled-out line comes back unchanged rather than being silently dropped
+    // from the sale.
+    const lines = withRestored(cart, picker);
+    setCart(lines);
+    setPicker(null);
+
     navigation.navigate("Payment", {
-      lines: cart,
+      lines,
       customerId: params.mode === "existing" ? params.customerId : null,
       customerName:
         params.mode === "existing" ? params.customerName : customerName.trim(),
       newCustomerName: isNewTab ? customerName.trim() : null,
     });
-  }, [navigation, cart, params, customerName, isNewTab]);
+  }, [navigation, cart, picker, params, customerName, isNewTab]);
 
   if (!catalog) {
     return (
