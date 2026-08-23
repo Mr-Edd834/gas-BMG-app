@@ -125,7 +125,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: 8,
   },
   pressed: {
-    backgroundColor: "#F1F2EE",
+    backgroundColor: colors.neutral,
   },
   divider: {
     width: 1,

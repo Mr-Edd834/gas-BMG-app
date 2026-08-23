@@ -302,7 +302,7 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
     borderRadius: 10,
-    backgroundColor: "#F1F2EE",
+    backgroundColor: colors.neutral,
   },
   noteDoneLabel: {
     fontSize: 13,
@@ -310,7 +310,7 @@ const styles = StyleSheet.create({
     color: colors.ink,
   },
   noteBox: {
-    backgroundColor: "#F6F8F4",
+    backgroundColor: colors.surfaceSoft,
     borderRadius: 10,
     paddingHorizontal: 12,
     paddingVertical: 10,
@@ -329,7 +329,7 @@ const styles = StyleSheet.create({
     minHeight: touchTarget,
     paddingHorizontal: 12,
     borderRadius: 10,
-    backgroundColor: "#F6F8F4",
+    backgroundColor: colors.surfaceSoft,
   },
   noteAction: {
     fontSize: 13,
@@ -340,7 +340,7 @@ const styles = StyleSheet.create({
     width: "100%",
     height: 160,
     borderRadius: cardRadius,
-    backgroundColor: "#F1F2EE",
+    backgroundColor: colors.neutral,
   },
   loggedBy: {
     fontSize: 12,

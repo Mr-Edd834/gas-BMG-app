@@ -81,7 +81,7 @@ const styles = StyleSheet.create({
     justifyContent: "center",
   },
   minus: {
-    backgroundColor: "#F1F2EE",
+    backgroundColor: colors.neutral,
     borderWidth: 1,
     borderColor: colors.line,
   },

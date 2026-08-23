@@ -31,7 +31,7 @@ const styles = StyleSheet.create({
   },
   amberBg: { backgroundColor: colors.amberBg },
   greenBg: { backgroundColor: colors.greenBg },
-  blueBg: { backgroundColor: "#E6EEF8" },
+  blueBg: { backgroundColor: colors.blueBg },
   amberText: { color: colors.amber },
   greenText: { color: colors.green },
   blueText: { color: colors.blue },

@@ -85,6 +85,9 @@ export function CylinderPicker({
     });
   }
 
+  // Captured once so the size rows below narrow cleanly instead of asserting.
+  const selectedBrand = state.brand;
+
   const rowsWithQty = sizes.filter((size) => rowFor(size).qty > 0);
   const hasQty = rowsWithQty.length > 0;
   const priceMissing = rowsWithQty.some(
@@ -143,12 +146,12 @@ export function CylinderPicker({
 
       {/* Both sizes appear together, each starting at 0 — she bumps only the
           size(s) actually sold. */}
-      {state.brand !== null &&
+      {selectedBrand !== null &&
         sizes.map((size) => {
           const row = rowFor(size);
           const owed = row.qty - row.returned;
           const allBack = owed <= 0;
-          const onHand = stock.get(stockKey(state.brand!, size));
+          const onHand = stock.get(stockKey(selectedBrand, size));
           const lowStock =
             onHand !== undefined && onHand <= LOW_STOCK_THRESHOLD;
 

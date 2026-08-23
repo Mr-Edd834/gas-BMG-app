@@ -1,5 +1,5 @@
 import type { NativeStackScreenProps } from "@react-navigation/native-stack";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import {
   ActivityIndicator,
   Pressable,
@@ -40,6 +40,13 @@ type Props = NativeStackScreenProps<RootStackParamList, "AddSale">;
 // What is currently open, and — if this is an edit — which line was pulled out
 // of the cart to open it, so cancelling can put it back exactly as it was.
 interface OpenPicker {
+  // Identifies this picker SESSION, not the commodity. Two consecutive
+  // sessions can use the same picker component (edit a cylinder line, then
+  // open the cylinder picker fresh), and without a changing key React would
+  // reuse the mounted instance and carry the previous session's internal
+  // state — and its values — into the new one. Used as the element key so
+  // every session starts from its own `initial`.
+  instanceId: number;
   commodity: CommodityType;
   cylinder: CylinderPickerState | null;
   airtime: AirtimePickerState | null;
@@ -77,6 +84,7 @@ export function AddSaleScreen({ route, navigation }: Props) {
   const [customerName, setCustomerName] = useState("");
   const [cart, setCart] = useState<CartLine[]>([]);
   const [picker, setPicker] = useState<OpenPicker | null>(null);
+  const nextInstanceId = useRef(0);
 
   useEffect(() => {
     let cancelled = false;
@@ -109,6 +117,7 @@ export function AddSaleScreen({ route, navigation }: Props) {
       // Walking away mid-edit is still a cancel: the line goes back untouched.
       setCart((prev) => withRestored(prev, picker));
       setPicker({
+        instanceId: nextInstanceId.current++,
         commodity,
         cylinder: null,
         airtime: null,
@@ -134,6 +143,7 @@ export function AddSaleScreen({ route, navigation }: Props) {
       if (index === -1) return;
       setCart(base.filter((l) => l.key !== line.key));
       setPicker({
+        instanceId: nextInstanceId.current++,
         commodity: line.commodity,
         cylinder:
           line.commodity === "cylinder" ? draftFromCylinderLine(line) : null,
@@ -263,6 +273,7 @@ export function AddSaleScreen({ route, navigation }: Props) {
 
         {picker?.commodity === "cylinder" && (
           <CylinderPicker
+            key={picker.instanceId}
             catalog={catalog}
             stock={stock}
             recentBrands={recentBrands}
@@ -274,6 +285,7 @@ export function AddSaleScreen({ route, navigation }: Props) {
 
         {picker?.commodity === "airtime" && (
           <AirtimePicker
+            key={picker.instanceId}
             catalog={catalog}
             initial={picker.airtime}
             onCommit={commitPicker}
@@ -283,6 +295,7 @@ export function AddSaleScreen({ route, navigation }: Props) {
 
         {(picker?.commodity === "burner" || picker?.commodity === "cooker") && (
           <FlatPicker
+            key={picker.instanceId}
             commodity={picker.commodity}
             options={
               picker.commodity === "burner"

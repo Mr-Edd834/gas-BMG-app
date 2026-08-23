@@ -72,7 +72,7 @@ export function PickerShell({
 
 const styles = StyleSheet.create({
   shell: {
-    backgroundColor: "#F6F8F4",
+    backgroundColor: colors.surfaceSoft,
     borderWidth: 1,
     borderColor: colors.line,
     borderRadius: 16,
@@ -97,7 +97,7 @@ const styles = StyleSheet.create({
     paddingVertical: 12,
   },
   cancel: {
-    backgroundColor: "#F1F2EE",
+    backgroundColor: colors.neutral,
     borderWidth: 1,
     borderColor: colors.line,
   },

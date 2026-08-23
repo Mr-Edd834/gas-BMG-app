@@ -125,6 +125,6 @@ const styles = StyleSheet.create({
     borderRadius: touchTarget / 2,
     alignItems: "center",
     justifyContent: "center",
-    backgroundColor: "#F1F2EE",
+    backgroundColor: colors.neutral,
   },
 });

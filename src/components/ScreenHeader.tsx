@@ -49,7 +49,7 @@ const styles = StyleSheet.create({
     width: touchTarget,
     height: touchTarget,
     borderRadius: touchTarget / 2,
-    backgroundColor: "#F1F2EE",
+    backgroundColor: colors.neutral,
     alignItems: "center",
     justifyContent: "center",
   },

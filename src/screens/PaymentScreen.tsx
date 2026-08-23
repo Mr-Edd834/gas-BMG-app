@@ -64,8 +64,8 @@ export function PaymentScreen({ route, navigation }: Props) {
             // arithmetic mistake to fix, not an outstanding balance. Owing
             // money stays amber, never alarm-red.
             label: "Over-paid — check amounts",
-            color: "#B4232A",
-            bg: "#FDECEC",
+            color: colors.overpaid,
+            bg: colors.overpaidBg,
           };
 
   // Optional, and structurally unable to block the save: it sets a path or it
@@ -366,7 +366,7 @@ const styles = StyleSheet.create({
     width: "100%",
     height: 160,
     borderRadius: 12,
-    backgroundColor: "#F1F2EE",
+    backgroundColor: colors.neutral,
   },
   noteLabelRow: {
     flexDirection: "row",

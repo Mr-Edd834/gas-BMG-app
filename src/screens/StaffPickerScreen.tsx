@@ -225,7 +225,7 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     alignItems: "center",
     paddingHorizontal: 16,
-    backgroundColor: "#F1F2EE",
+    backgroundColor: colors.neutral,
     borderRadius: cardRadius,
   },
   secondaryText: {

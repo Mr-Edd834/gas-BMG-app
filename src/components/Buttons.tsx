@@ -8,7 +8,7 @@ const toneBackground: Record<Tone, string> = {
   ink: colors.ink,
   blue: colors.blue,
   green: colors.green,
-  neutral: "#F1F2EE",
+  neutral: colors.neutral,
 };
 
 const toneText: Record<Tone, string> = {
