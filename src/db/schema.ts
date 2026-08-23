@@ -114,6 +114,47 @@ export const SCHEMA_STATEMENTS: string[] = [
     synced INTEGER NOT NULL DEFAULT 0
   );`,
   `CREATE INDEX IF NOT EXISTS idx_catalog_items_kind ON catalog_items(kind);`,
+
+  // THE shared stock/empties event ledger (G2; spec Part C §4 §10 RETRO-NOTE,
+  // applied back onto Home/Sales via Part C §1 §7b). ONE table feeds Debts
+  // (empties in hand), Refilling, Reports and stock counts. Append-only.
+  //
+  // G1: there is deliberately no "count"/"stock level" column anywhere — the
+  // two quantities the app needs are SUMs over these rows:
+  //   full stock (brand+size)     = opening-count + returned-from-refill
+  //                                 + manual-add − sold        [scope 'full']
+  //   empties in hand (brand+size) = opening-count + received
+  //                                 − sent + manual-add        [scope 'empty']
+  //
+  // `scope` exists because `opening-count` and `manual-add` are the only two
+  // event types that can mean EITHER pile (Settings seeds both a full-stock
+  // and an empties opening count — Refilling §10 "cold-start problem"), so the
+  // row has to say which ledger it lands in. The other four types are
+  // inherently one or the other ('sold'/'returned-from-refill' = full,
+  // 'received'/'sent' = empty) and simply carry the matching scope.
+  //
+  // source_type/source_id link an event back to what caused it (e.g. the
+  // sale_item that wrote it) without a hard FK, so this table stays usable by
+  // sections whose own tables don't exist yet (Refilling batches).
+  `CREATE TABLE IF NOT EXISTS stock_events (
+    id TEXT PRIMARY KEY NOT NULL,
+    business_id TEXT NOT NULL REFERENCES businesses(id),
+    event_type TEXT NOT NULL CHECK (event_type IN ('opening-count','received','sent','returned-from-refill','sold','manual-add')),
+    scope TEXT NOT NULL CHECK (scope IN ('full','empty')),
+    brand TEXT NOT NULL,
+    size TEXT NOT NULL,
+    qty INTEGER NOT NULL,
+    staff_id TEXT REFERENCES staff(id),
+    source_type TEXT,
+    source_id TEXT,
+    note TEXT,
+    occurred_at TEXT NOT NULL,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+    synced INTEGER NOT NULL DEFAULT 0
+  );`,
+  `CREATE INDEX IF NOT EXISTS idx_stock_events_item ON stock_events(business_id, scope, brand, size);`,
+  `CREATE INDEX IF NOT EXISTS idx_stock_events_source ON stock_events(source_type, source_id);`,
 ];
 
 // Deliberately NOT created here yet — each is owned by a section spec later
@@ -121,6 +162,4 @@ export const SCHEMA_STATEMENTS: string[] = [
 // exactly to that section's spec, when that section is built:
 //   - repayments (Debts §4): a dated repayment event against ONE specific debt (sale).
 //   - empty_returns (Debts §5): a dated partial-return event against ONE cylinder sale_item.
-//   - stock_events (Refilling §10 RETRO-NOTE / G2): the shared ledger —
-//       opening-count | received | sent | returned-from-refill | sold | manual-add.
 //   - refilling companies / batches / batch_lines / batch photos / batch returns (Refilling §2-9).

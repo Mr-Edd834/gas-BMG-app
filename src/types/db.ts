@@ -19,6 +19,13 @@ export interface Staff {
   synced: 0 | 1;
 }
 
+// Device-local, never synced: which staff member owns this phone (spec Part B §5).
+export interface DeviceIdentity {
+  id: 1;
+  staff_id: string | null;
+  business_id: string | null;
+}
+
 export interface Customer {
   id: string;
   business_id: string;
@@ -59,6 +66,36 @@ export interface SaleItem {
   unit_price: number;
   is_auto_priced: 0 | 1;
   empties_returned: number | null;
+  created_at: string;
+  updated_at: string;
+  synced: 0 | 1;
+}
+
+// The shared stock/empties ledger (G2). See src/db/schema.ts for why `scope`
+// exists and how the two derived quantities are summed.
+export type StockEventType =
+  | "opening-count"
+  | "received"
+  | "sent"
+  | "returned-from-refill"
+  | "sold"
+  | "manual-add";
+
+export type StockScope = "full" | "empty";
+
+export interface StockEvent {
+  id: string;
+  business_id: string;
+  event_type: StockEventType;
+  scope: StockScope;
+  brand: string;
+  size: string;
+  qty: number;
+  staff_id: string | null;
+  source_type: string | null;
+  source_id: string | null;
+  note: string | null;
+  occurred_at: string;
   created_at: string;
   updated_at: string;
   synced: 0 | 1;
