@@ -141,21 +141,40 @@ normal state.
 ## Open / deferred decisions (do not silently pick — flag and ask)
 
 RN typography (fonts not locked) · airtime 0.95 rate editability · "due soon"
-window (≤2 days) and low-stock threshold (≤2) — both tunable · reminder time
-sync-or-not · same-morning reminder stacking vs daily roll-up · photo
-compression level · catalog item soft-hide vs hard-delete on removal ·
-bottom-nav grouping (6 sections likely needs a "More" overflow).
+window (≤2 days) · reminder time sync-or-not · same-morning reminder stacking
+vs daily roll-up · catalog item soft-hide vs hard-delete on removal.
 
 **Resolved (2026-08-23):** no app-entry PIN/password lock (name-picker only,
 no login) · an overdue unreturned empty never converts to a money charge.
+
+**Resolved while building Home/Sales:**
+- **Bottom nav is FLAT** — all six sections directly tappable, no "More"
+  overflow. Labels abbreviate ("Sales", "Refill") to fit six across.
+- **Tunables live in `src/config/tunables.ts`** (low-stock threshold = 2,
+  recent-brand count = 3, receipt photo quality = 0.8) so Settings can reach
+  them later. Photo compression took the spec's own "light compression"
+  middle path — one constant, change it if Edd wants pristine originals.
+- **Tab "access frequency" = count of that customer's sales**, derived at read
+  time (never a stored counter, G1) — the option Part B §8 allows.
+- **`stock_events` carries a `scope` column** (`full` | `empty`), because
+  `opening-count` and `manual-add` are the only event types that can mean
+  either pile and the row must say which derived quantity it feeds.
+- **Airtime packs/singles are not persisted** — `sale_items` records the card
+  count, and 1 pack vs 10 singles is the same 10 cards at the same price. The
+  breakdown is cart-only, matching the Part B §8 schema.
 
 ---
 
 ## Working conventions for this project
 
-- Git repo initialized during Expo scaffolding (2026-08-23). Nothing
-  committed yet beyond the scaffold — review with `git status` before the
-  first real commit.
+- Git repo initialized during Expo scaffolding (2026-08-23). Section 1
+  (Home/Sales) is built; sections 2–6 are placeholder screens.
+- **Where Home/Sales lives:** `src/db/queries/*` (data), `src/sales/*` (cart
+  types + the single picker-state → cart-line builders), `src/screens/*`
+  (Home, AddSale, Payment, CustomerHistory, StaffPicker),
+  `src/screens/pickers/*` (the three commodity picker shapes),
+  `src/components/*` (shared UI). Editing a cart line goes through the SAME
+  builders as adding — don't add a second path.
 - When a spec section has a RETRO-NOTE amending an earlier section (e.g.
   Refilling §10 adds a `sold` event requirement to Home/Sales), treat the
   RETRO-NOTE as binding even though it lives in a later section.
