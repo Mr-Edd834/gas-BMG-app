@@ -24,7 +24,14 @@
       "favicon": "./assets/favicon.png"
     },
     "plugins": [
-      "expo-sqlite"
+      "expo-sqlite",
+      [
+        "expo-image-picker",
+        {
+          "cameraPermission": "BMG Shop uses the camera only to photograph a receipt you choose to attach to a sale.",
+          "photosPermission": "BMG Shop opens your photos only if you pick an existing receipt image to attach to a sale."
+        }
+      ]
     ]
   }
 }
