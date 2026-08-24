@@ -1,7 +1,7 @@
 {
   "expo": {
     "name": "BMG Shop",
-    "slug": "bmg-shop-app",
+    "slug": "bmg-app",
     "version": "1.0.0",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
@@ -18,7 +18,8 @@
         "backgroundImage": "./assets/android-icon-background.png",
         "monochromeImage": "./assets/android-icon-monochrome.png"
       },
-      "predictiveBackGestureEnabled": false
+      "predictiveBackGestureEnabled": false,
+      "permissions": []
     },
     "web": {
       "favicon": "./assets/favicon.png"
@@ -29,9 +30,16 @@
         "expo-image-picker",
         {
           "cameraPermission": "BMG Shop uses the camera only to photograph a receipt you choose to attach to a sale.",
-          "photosPermission": "BMG Shop opens your photos only if you pick an existing receipt image to attach to a sale."
+          "photosPermission": "BMG Shop opens your photos only if you pick an existing receipt image to attach to a sale.",
+          "microphonePermission": false
         }
       ]
-    ]
+    ],
+    "extra": {
+      "eas": {
+        "projectId": "2b9e6192-71cf-42a5-abeb-1ccf964d5fcd"
+      }
+    },
+    "owner": "mredd834s-team"
   }
 }
