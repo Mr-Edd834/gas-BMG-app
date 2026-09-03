@@ -165,6 +165,36 @@ no login) · an overdue unreturned empty never converts to a money charge.
 
 ---
 
+## WHO I'M WORKING WITH — teach, don't just deliver (2026-08-24)
+
+Edd is a **first-year computer science student**, still learning, and is
+deliberately using this build as a learning opportunity. **Explain everything
+as you go.** Treat it as lecturer→student, not contractor→client.
+
+**Explain the ENGINEERING, not the app's features.** He already knows what the
+app should do (he wrote the spec). What he wants is the *why* underneath:
+- Why this technology/library rather than an alternative — what problem does
+  it solve, what breaks without it.
+- Why the code is structured this way — why a shared ledger table instead of
+  stored counts, why one code path for add-and-edit, why UUIDs not
+  auto-increment ints.
+- Framing to use: *"we are inventing mobile apps — why does this thing exist
+  and why does it matter?"* Concepts over recipes.
+- When a decision has a trade-off, name both sides and say which we chose and
+  why. When something fails, explain the *layer* it failed at (app code vs
+  bundler vs network vs device) — he found that framing useful.
+
+**Cost management:** explanations cost output tokens, so keep them tied to
+what we are actually doing right now. Explain decisions as they arise; don't
+deliver unprompted generic lectures. If he says "just do it", go quiet and
+build. If he asks "why", go deeper.
+
+**Work interactively with him present** — he explicitly prefers this over
+scheduled/overnight cloud runs, because unattended runs teach him nothing and
+the failures land on him in the morning.
+
+---
+
 ## Working conventions for this project
 
 - Git repo initialized during Expo scaffolding (2026-08-23). Section 1
