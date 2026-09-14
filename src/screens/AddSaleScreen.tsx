@@ -11,6 +11,7 @@ import {
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { CartLineCard } from "../components/CartLineCard";
+import { LoadError } from "../components/LoadError";
 import { ScreenHeader } from "../components/ScreenHeader";
 import { RECENT_BRAND_COUNT } from "../config/tunables";
 import { useReadyApp } from "../context/AppContext";
@@ -80,6 +81,10 @@ export function AddSaleScreen({ route, navigation }: Props) {
   const [catalog, setCatalog] = useState<Catalog | null>(null);
   const [stock, setStock] = useState<Map<string, number>>(new Map());
   const [recentBrands, setRecentBrands] = useState<string[]>([]);
+  // Without this the catalog simply stayed null on failure and the screen sat
+  // on its spinner forever, with no way to tell a slow read from a broken one.
+  const [loadError, setLoadError] = useState<string | null>(null);
+  const [attempt, setAttempt] = useState(0);
 
   const [customerName, setCustomerName] = useState("");
   const [cart, setCart] = useState<CartLine[]>([]);
@@ -98,14 +103,17 @@ export function AddSaleScreen({ route, navigation }: Props) {
         setCatalog(loadedCatalog);
         setStock(loadedStock);
         setRecentBrands(brands);
+        setLoadError(null);
       })
       .catch((err) => {
         console.error("[AddSale] could not load the catalog", err);
+        if (cancelled) return;
+        setLoadError(err instanceof Error ? err.message : String(err));
       });
     return () => {
       cancelled = true;
     };
-  }, [businessId]);
+  }, [businessId, attempt]);
 
   const openPicker = useCallback(
     (commodity: CommodityType) => {
@@ -208,6 +216,27 @@ export function AddSaleScreen({ route, navigation }: Props) {
       newCustomerName: isNewTab ? customerName.trim() : null,
     });
   }, [navigation, cart, picker, params, customerName, isNewTab]);
+
+  // Without a catalog there is nothing to sell, so this is a hard stop rather
+  // than a degraded screen — offering empty pickers would invite her to build
+  // a sale that cannot be completed.
+  if (!catalog && loadError !== null) {
+    return (
+      <SafeAreaView style={styles.screen} edges={["top", "left", "right"]}>
+        <ScreenHeader
+          title={isNewTab ? "New tab" : `Sale · ${params.customerName}`}
+          onBack={() => navigation.goBack()}
+        />
+        <View style={styles.errorPad}>
+          <LoadError
+            what="what this shop sells"
+            detail={loadError}
+            onRetry={() => setAttempt((n) => n + 1)}
+          />
+        </View>
+      </SafeAreaView>
+    );
+  }
 
   if (!catalog) {
     return (
@@ -368,6 +397,9 @@ const styles = StyleSheet.create({
   screen: {
     flex: 1,
     backgroundColor: colors.paper,
+  },
+  errorPad: {
+    paddingHorizontal: 20,
   },
   centered: {
     flex: 1,

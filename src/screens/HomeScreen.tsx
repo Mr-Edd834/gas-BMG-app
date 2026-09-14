@@ -11,6 +11,7 @@ import {
 import { SafeAreaView } from "react-native-safe-area-context";
 import { PrimaryButton } from "../components/Buttons";
 import { CustomerTabCard } from "../components/CustomerTabCard";
+import { LoadError } from "../components/LoadError";
 import { SearchField } from "../components/SearchField";
 import { useReadyApp } from "../context/AppContext";
 import { listCustomerTabs, type CustomerTab } from "../db/queries/customers";
@@ -29,6 +30,11 @@ export function HomeScreen() {
   const navigation = useNavigation<Nav>();
 
   const [tabs, setTabs] = useState<CustomerTab[] | null>(null);
+  // Distinct from "tabs is an empty array". An empty wall is a real, ordinary
+  // answer on a new install; a failed read is a fault. Collapsing the two
+  // would tell her every customer had vanished.
+  const [loadError, setLoadError] = useState<string | null>(null);
+  const [attempt, setAttempt] = useState(0);
   const [search, setSearch] = useState("");
 
   // Reloads on every focus, so a tab's frequency ranking, last item and
@@ -38,16 +44,21 @@ export function HomeScreen() {
       let cancelled = false;
       listCustomerTabs(businessId)
         .then((rows) => {
-          if (!cancelled) setTabs(rows);
+          if (cancelled) return;
+          setTabs(rows);
+          setLoadError(null);
         })
         .catch((err) => {
           console.error("[Home] could not load the tab wall", err);
-          if (!cancelled) setTabs([]);
+          if (cancelled) return;
+          // Deliberately does NOT set tabs to [] — that is what made a
+          // database fault render as "No customer tabs yet."
+          setLoadError(err instanceof Error ? err.message : String(err));
         });
       return () => {
         cancelled = true;
       };
-    }, [businessId])
+    }, [businessId, attempt])
   );
 
   // Live filter by name (spec §3). Quick Sale stays visible whenever it
@@ -104,6 +115,23 @@ export function HomeScreen() {
     </View>
   );
 
+  // The read failed and we have nothing trustworthy to show. The header still
+  // renders so the screen stays recognisable and she can still search or add.
+  if (loadError !== null && tabs === null) {
+    return (
+      <SafeAreaView style={styles.screen} edges={["top", "left", "right"]}>
+        <View style={styles.errorPad}>
+          {header}
+          <LoadError
+            what="your customer tabs"
+            detail={loadError}
+            onRetry={() => setAttempt((n) => n + 1)}
+          />
+        </View>
+      </SafeAreaView>
+    );
+  }
+
   if (tabs === null) {
     return (
       <SafeAreaView style={styles.screen} edges={["top", "left", "right"]}>
@@ -155,6 +183,9 @@ const styles = StyleSheet.create({
   listContent: {
     paddingHorizontal: 20,
     paddingBottom: 24,
+  },
+  errorPad: {
+    paddingHorizontal: 20,
   },
   header: {
     paddingTop: 12,

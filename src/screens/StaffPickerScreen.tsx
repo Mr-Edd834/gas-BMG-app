@@ -33,6 +33,10 @@ export function StaffPickerScreen() {
   const [typedName, setTypedName] = useState("");
   const [addingNew, setAddingNew] = useState(false);
   const [saving, setSaving] = useState(false);
+  // This screen is the very first thing a new phone shows. If storage is
+  // broken here, every later screen will fail too — saying so now beats
+  // letting her name a phone that cannot remember the name.
+  const [saveError, setSaveError] = useState<string | null>(null);
 
   useEffect(() => {
     if (!businessId) return;
@@ -47,10 +51,15 @@ export function StaffPickerScreen() {
       })
       .catch((err) => {
         console.error("[StaffPicker] could not read the roster", err);
-        if (!cancelled) {
-          setRoster([]);
-          setAddingNew(true);
-        }
+        if (cancelled) return;
+        // Falling back to the name field is still the right move — she can
+        // only proceed by naming this phone — but the fault is surfaced so a
+        // broken database doesn't masquerade as a brand-new install.
+        setRoster([]);
+        setAddingNew(true);
+        setSaveError(
+          `Could not read the staff list: ${err instanceof Error ? err.message : String(err)}`
+        );
       });
     return () => {
       cancelled = true;
@@ -79,6 +88,9 @@ export function StaffPickerScreen() {
       await chooseStaff(staff);
     } catch (err) {
       console.error("[StaffPicker] could not save the name", err);
+      setSaveError(
+        `Could not save that name: ${err instanceof Error ? err.message : String(err)}`
+      );
       setSaving(false);
     }
   }, [businessId, typedName, chooseStaff]);
@@ -103,6 +115,10 @@ export function StaffPickerScreen() {
         <Text style={styles.sub}>
           Pick your name once. Every sale you log will be recorded under it.
         </Text>
+
+        {saveError !== null && (
+          <Text style={styles.saveError}>{saveError}</Text>
+        )}
 
         {!addingNew && (
           <View style={styles.list}>
@@ -198,6 +214,17 @@ const styles = StyleSheet.create({
     fontSize: 14,
     color: colors.muted,
     lineHeight: 20,
+    marginBottom: 16,
+  },
+  saveError: {
+    fontSize: 13,
+    lineHeight: 18,
+    color: colors.amber,
+    backgroundColor: colors.amberBg,
+    borderColor: colors.amber,
+    borderWidth: 1,
+    borderRadius: 10,
+    padding: 12,
     marginBottom: 16,
   },
   list: {
