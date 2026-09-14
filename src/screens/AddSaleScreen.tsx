@@ -9,7 +9,7 @@ import {
   TextInput,
   View,
 } from "react-native";
-import { SafeAreaView } from "react-native-safe-area-context";
+import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
 import { CartLineCard } from "../components/CartLineCard";
 import { LoadError } from "../components/LoadError";
 import { ScreenHeader } from "../components/ScreenHeader";
@@ -73,7 +73,10 @@ function withRestored(cart: CartLine[], open: OpenPicker | null): CartLine[] {
 // open another commodity without ever leaving. That is the point of the cart
 // pattern — it removes the navigating back and forth between a picker screen
 // and a list screen.
+const BOTTOM_BAR_PADDING = 16;
+
 export function AddSaleScreen({ route, navigation }: Props) {
+  const insets = useSafeAreaInsets();
   const { businessId } = useReadyApp();
   const params = route.params;
   const isNewTab = params.mode === "new-tab";
@@ -360,9 +363,18 @@ export function AddSaleScreen({ route, navigation }: Props) {
       </ScrollView>
 
       {/* Running total + the move-to-payment button, visible only once the
-          cart has something in it (spec §5). */}
+          cart has something in it (spec §5).
+
+          paddingBottom includes the device's bottom safe-area inset: Android
+          draws Back/Home/Recents inside the app window, so a bar pinned to
+          bottom: 0 sits underneath them on a 3-button phone. */}
       {cart.length > 0 && (
-        <View style={styles.bottomBar}>
+        <View
+          style={[
+            styles.bottomBar,
+            { paddingBottom: BOTTOM_BAR_PADDING + insets.bottom },
+          ]}
+        >
           <View style={styles.totalRow}>
             <Text style={styles.totalLabel}>Total so far</Text>
             <Text style={styles.totalValue}>{formatMoney(total)}</Text>
@@ -474,7 +486,9 @@ const styles = StyleSheet.create({
     bottom: 0,
     paddingHorizontal: 20,
     paddingTop: 12,
-    paddingBottom: 24,
+    // paddingBottom is applied inline where the safe-area inset is known.
+    // Do not put a fixed value back here — it would be overridden anyway and
+    // would only mislead the next person reading this.
     backgroundColor: colors.paper,
     borderTopWidth: 1,
     borderTopColor: colors.line,

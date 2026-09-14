@@ -127,7 +127,13 @@ export interface SaleItemRecord {
   qty: number;
   unitPrice: number;
   isAutoPriced: boolean;
+  // Handed over at the counter, at the moment of sale.
   emptiesReturned: number | null;
+  // Brought back afterwards, via the Debts section. Kept separate from the
+  // at-sale count because they are different events on different days — and
+  // because without it this screen would still show the original shortfall
+  // long after the cylinders had actually come back.
+  emptiesReturnedLater: number;
 }
 
 export interface SaleRecord {
@@ -190,6 +196,20 @@ export async function listCustomerSales(
     ...saleRows.map((s) => s.id)
   );
 
+  // Empties brought back after the sale, summed per line.
+  const laterReturns = await db.getAllAsync<{
+    sale_item_id: string;
+    qty: number;
+  }>(
+    `SELECT sale_item_id, SUM(qty) AS qty
+     FROM empty_returns
+     WHERE sale_item_id IN (SELECT id FROM sale_items WHERE sale_id IN (${placeholders}))
+     GROUP BY sale_item_id`,
+    ...saleRows.map((s) => s.id)
+  );
+  const laterByItem = new Map<string, number>();
+  for (const r of laterReturns) laterByItem.set(r.sale_item_id, r.qty);
+
   const itemsBySale = new Map<string, SaleItemRecord[]>();
   for (const row of itemRows) {
     const list = itemsBySale.get(row.sale_id) ?? [];
@@ -201,6 +221,7 @@ export async function listCustomerSales(
       unitPrice: row.unit_price,
       isAutoPriced: row.is_auto_priced === 1,
       emptiesReturned: row.empties_returned,
+      emptiesReturnedLater: laterByItem.get(row.id) ?? 0,
     });
     itemsBySale.set(row.sale_id, list);
   }

@@ -9,7 +9,11 @@ import {
   View,
 } from "react-native";
 import type { SaleRecord } from "../db/queries/sales";
-import { debtPrincipal, saleGoodsTotal } from "../debts/rules";
+import {
+  debtPrincipal,
+  emptiesOutstanding,
+  saleGoodsTotal,
+} from "../debts/rules";
 import { formatDateTime } from "../lib/formatDate";
 import { formatMoney } from "../lib/formatMoney";
 import { lineTotal } from "../sales/types";
@@ -61,6 +65,21 @@ export function SaleHistoryCard({
   // missing, and history is immutable — the fix is a new entry, never a rewrite.
   const unreconciled = sale.cashAmount + sale.creditAmount !== itemsTotal;
 
+  // Cylinders are the only commodity that leaves an empty behind. Money owed
+  // and empties owed are tracked separately and never summed (spec Part C §2
+  // §1): a customer can be square on cash and still be holding six cylinders,
+  // and only one of those is settled by paying.
+  const cylinderItems = sale.items.filter((i) => i.commodityType === "cylinder");
+  const emptiesOwed = cylinderItems.reduce(
+    (sum, i) =>
+      sum +
+      emptiesOutstanding(i.qty, i.emptiesReturned, [
+        { qty: i.emptiesReturnedLater },
+      ]),
+    0
+  );
+  const hasCylinders = cylinderItems.length > 0;
+
   const summary = sale.items
     .map((item) => `${item.label} ×${item.qty}`)
     .join(", ");
@@ -101,6 +120,18 @@ export function SaleHistoryCard({
           ) : (
             <StatusChip tone="green" label="Fully paid" />
           )}
+          {/* Visible without expanding, because "did they bring the cylinders
+              back?" is a question she asks at the same moment as "did they
+              pay?" — burying it one tap down meant it was never checked. */}
+          {hasCylinders &&
+            (emptiesOwed > 0 ? (
+              <StatusChip
+                tone="amber"
+                label={`${emptiesOwed} ${emptiesOwed === 1 ? "empty" : "empties"} owed`}
+              />
+            ) : (
+              <StatusChip tone="green" label="Empties back" />
+            ))}
           {sale.receiptPhotoLocalPath && (
             <Ionicons
               name="camera-outline"
@@ -124,8 +155,10 @@ export function SaleHistoryCard({
             <View key={item.id} style={styles.itemRow}>
               <Text style={styles.itemLabel}>
                 {item.label} ×{item.qty}
-                {item.emptiesReturned !== null &&
-                  ` · ${item.emptiesReturned}/${item.qty} empties back`}
+                {item.commodityType === "cylinder" &&
+                  ` · ${
+                    (item.emptiesReturned ?? 0) + item.emptiesReturnedLater
+                  } of ${item.qty} empties back`}
               </Text>
               <Text style={styles.itemTotal}>
                 {formatMoney(lineTotal(item.qty, item.unitPrice))}

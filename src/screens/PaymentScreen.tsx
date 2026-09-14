@@ -11,7 +11,7 @@ import {
   TextInput,
   View,
 } from "react-native";
-import { SafeAreaView } from "react-native-safe-area-context";
+import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
 import { PrimaryButton } from "../components/Buttons";
 import { ScreenHeader } from "../components/ScreenHeader";
 import { useToast } from "../components/Toast";
@@ -26,6 +26,8 @@ import { cartTotal } from "../sales/types";
 import { colors } from "../theme/colors";
 import { cardRadius, touchTarget } from "../theme/layout";
 
+const BOTTOM_BAR_PADDING = 16;
+
 type Props = NativeStackScreenProps<RootStackParamList, "Payment">;
 
 function parseAmount(raw: string): number {
@@ -35,16 +37,25 @@ function parseAmount(raw: string): number {
 
 // STEP 2 — payment (spec Part C §1 §5).
 //
-// Cash and credit are BOTH free fields rather than a two-way toggle, because
-// split payment ("half now, half on credit") is normal here and a toggle
-// cannot express it. The reconciliation strip is what keeps that honest.
+// DEVIATES FROM THE SPEC, deliberately, on Edd's instruction (2026-09-14).
+// The spec has cash AND credit as two editable fields with a reconciliation
+// strip between them. In real use that was worse than useless: two typed
+// numbers can disagree with each other and with the goods, and the first time
+// it happened a genuine debt was erased. It also asked the shopkeeper to do
+// subtraction at a busy counter.
+//
+// Cash received is now the ONLY input. Credit is the remainder, computed and
+// displayed. Split payment still works exactly as the spec intended — "paid
+// some now, owes the rest" — she just no longer types the second half.
+// The reconciliation strip is gone with it: when credit is derived, cash and
+// credit always reconcile, so the strip could only ever say "correct".
 export function PaymentScreen({ route, navigation }: Props) {
   const { businessId, staff } = useReadyApp();
   const { showToast } = useToast();
+  const insets = useSafeAreaInsets();
   const { lines, customerId, customerName, newCustomerName } = route.params;
 
   const [cash, setCash] = useState("");
-  const [credit, setCredit] = useState("");
   const [note, setNote] = useState("");
   const [photoPath, setPhotoPath] = useState<string | null>(null);
   // Non-null only when a save actually failed. Rendered near the save button
@@ -54,47 +65,15 @@ export function PaymentScreen({ route, navigation }: Props) {
   const [saving, setSaving] = useState(false);
 
   const total = useMemo(() => cartTotal(lines), [lines]);
-  const covered = parseAmount(cash) + parseAmount(credit);
-  const remaining = total - covered;
+  const cashPaid = parseAmount(cash);
 
-  // Typing the cash received auto-fills the rest as credit, so the common case
-  // ("she paid some now, owes the rest") records the debt without the
-  // shopkeeper doing arithmetic at a busy counter. Leaving credit blank after
-  // a partial cash payment was silently dropping the debt entirely — the exact
-  // revenue leak this app exists to stop.
-  //
-  // It stops auto-filling the moment she edits credit herself: after that the
-  // number is hers, and overwriting it would be the app inventing a fact.
-  const [creditTouched, setCreditTouched] = useState(false);
+  // Credit is DERIVED, never entered (see the block in the JSX for why).
+  // Blank cash therefore means "paid nothing yet, all of it is owed", which is
+  // the honest reading of an empty box — not zero debt.
+  const onCredit = Math.max(0, total - cashPaid);
 
-  const onCashChange = useCallback(
-    (next: string) => {
-      setCash(next);
-      if (creditTouched) return;
-      const shortfall = total - parseAmount(next);
-      setCredit(shortfall > 0 ? String(shortfall) : "");
-    },
-    [creditTouched, total]
-  );
-
-  const onCreditChange = useCallback((next: string) => {
-    setCreditTouched(true);
-    setCredit(next);
-  }, []);
-
-  const reconciliation =
-    remaining === 0
-      ? { label: "Fully accounted for", color: colors.green, bg: colors.greenBg }
-      : remaining > 0
-        ? { label: "Still unaccounted", color: colors.amber, bg: colors.amberBg }
-        : {
-            // The one place the app goes red-ish: an over-payment is an
-            // arithmetic mistake to fix, not an outstanding balance. Owing
-            // money stays amber, never alarm-red.
-            label: "Over-paid — check amounts",
-            color: colors.overpaid,
-            bg: colors.overpaidBg,
-          };
+  // Cash beyond the value of the goods. A typo, not a negative debt.
+  const overpaid = Math.max(0, cashPaid - total);
 
   // Optional, and structurally unable to block the save: it sets a path or it
   // doesn't, and Save sale never consults it (G8).
@@ -135,8 +114,12 @@ export function PaymentScreen({ route, navigation }: Props) {
         // taps, and the timestamp is stamped inside createSale (G6).
         staffId: staff.id,
         lines,
-        cashAmount: parseAmount(cash),
-        creditAmount: parseAmount(credit),
+        cashAmount: cashPaid,
+        // Stored as the computed remainder, so this column can no longer
+        // disagree with the goods. Every screen still DERIVES what is owed
+        // from goods minus cash (src/debts/rules.ts) rather than trusting it —
+        // this is a record of what happened, not the source of truth.
+        creditAmount: onCredit,
         note: note.trim().length > 0 ? note.trim() : null,
         receiptPhotoLocalPath: photoPath,
       });
@@ -169,8 +152,8 @@ export function PaymentScreen({ route, navigation }: Props) {
     businessId,
     staff.id,
     lines,
-    cash,
-    credit,
+    cashPaid,
+    onCredit,
     note,
     photoPath,
     navigation,
@@ -199,7 +182,7 @@ export function PaymentScreen({ route, navigation }: Props) {
           <Text style={styles.fieldLabel}>Paid in cash now (KSh)</Text>
           <TextInput
             value={cash}
-            onChangeText={onCashChange}
+            onChangeText={setCash}
             keyboardType="numeric"
             inputMode="numeric"
             placeholder="0"
@@ -209,32 +192,39 @@ export function PaymentScreen({ route, navigation }: Props) {
           />
         </View>
 
-        <View style={styles.field}>
-          <Text style={styles.fieldLabel}>On credit (KSh)</Text>
-          <TextInput
-            value={credit}
-            onChangeText={onCreditChange}
-            keyboardType="numeric"
-            inputMode="numeric"
-            placeholder="0"
-            placeholderTextColor={colors.mutedLight}
-            accessibilityLabel="Amount taken on credit"
-            style={styles.amountInput}
-          />
+        {/* Credit is SHOWN, never typed.
+            It used to be a second input, and that was a mistake: two numbers a
+            human enters can disagree with each other and with the goods, which
+            is exactly how a real debt got erased. There is only one thing the
+            shopkeeper actually knows at the counter — how much cash is in her
+            hand. Whatever the goods were worth beyond that IS the credit, so
+            the app computes it rather than asking her to do subtraction while
+            a customer waits. One input, no arithmetic, nothing to disagree. */}
+        <View
+          style={styles.creditBlock}
+          accessibilityLiveRegion="polite"
+          accessibilityLabel={`Remaining on credit, ${formatMoney(onCredit)}`}
+        >
+          <Text style={styles.creditLabel}>REMAINING ON CREDIT</Text>
+          <Text style={styles.creditValue}>{formatMoney(onCredit)}</Text>
+          <Text style={styles.creditHint}>
+            {onCredit > 0
+              ? "Owed after today. Due in one week."
+              : "Nothing owed — paid in full."}
+          </Text>
         </View>
 
-        {/* Live: cash + credit against the total. */}
-        <View
-          style={[styles.reconcile, { backgroundColor: reconciliation.bg }]}
-          accessibilityLiveRegion="polite"
-        >
-          <Text style={[styles.reconcileLabel, { color: reconciliation.color }]}>
-            {reconciliation.label}
-          </Text>
-          <Text style={[styles.reconcileValue, { color: reconciliation.color }]}>
-            {formatMoney(Math.abs(remaining))}
-          </Text>
-        </View>
+        {/* The ONE case still worth interrupting for: more cash than the sale
+            was worth. That is not a debt, it is a typo, and silently keeping
+            it would overstate the day's takings. */}
+        {overpaid > 0 && (
+          <View style={styles.overpaid}>
+            <Text style={styles.overpaidText}>
+              That is {formatMoney(overpaid)} more than the sale came to —
+              check the cash amount.
+            </Text>
+          </View>
+        )}
 
         <Pressable
           accessibilityRole="button"
@@ -296,7 +286,16 @@ export function PaymentScreen({ route, navigation }: Props) {
         </View>
       </ScrollView>
 
-      <View style={styles.bottomBar}>
+      {/* Android draws Back/Home/Recents INSIDE the app window, so a bar
+          pinned to bottom: 0 sits underneath them on a 3-button phone. Padding
+          by the device's reported inset lifts the button clear while the bar's
+          background still fills the strip behind the system keys. */}
+      <View
+        style={[
+          styles.bottomBar,
+          { paddingBottom: BOTTOM_BAR_PADDING + insets.bottom },
+        ]}
+      >
         {/* Shown ONLY when a save genuinely failed. This is not the calm
             offline notice (G8) — offline saves succeed and say nothing. This
             means the record was not written, so it is stated plainly. */}
@@ -390,21 +389,39 @@ const styles = StyleSheet.create({
     fontSize: 16,
     color: colors.ink,
   },
-  reconcile: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
+  creditBlock: {
+    backgroundColor: colors.amberBg,
+    borderRadius: 12,
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+    gap: 2,
+  },
+  creditLabel: {
+    fontSize: 11,
+    letterSpacing: 1,
+    fontWeight: "700",
+    color: colors.amber,
+  },
+  creditValue: {
+    fontSize: 26,
+    fontWeight: "700",
+    color: colors.amber,
+  },
+  creditHint: {
+    fontSize: 12,
+    color: colors.mutedLight,
+  },
+  overpaid: {
+    backgroundColor: colors.overpaidBg,
     borderRadius: 12,
     paddingHorizontal: 14,
     paddingVertical: 12,
   },
-  reconcileLabel: {
-    fontSize: 14,
+  overpaidText: {
+    fontSize: 13,
+    lineHeight: 18,
     fontWeight: "600",
-  },
-  reconcileValue: {
-    fontSize: 14,
-    fontWeight: "700",
+    color: colors.overpaid,
   },
   photoButton: {
     flexDirection: "row",
@@ -460,7 +477,8 @@ const styles = StyleSheet.create({
     bottom: 0,
     paddingHorizontal: 20,
     paddingTop: 12,
-    paddingBottom: 24,
+    // paddingBottom is applied inline where the safe-area inset is known.
+    // Do not put a fixed value back here.
     backgroundColor: colors.paper,
     borderTopWidth: 1,
     borderTopColor: colors.line,
