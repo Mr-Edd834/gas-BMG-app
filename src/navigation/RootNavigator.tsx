@@ -1,11 +1,17 @@
 import { Ionicons } from "@expo/vector-icons";
 import { createBottomTabNavigator } from "@react-navigation/bottom-tabs";
-import { NavigationContainer } from "@react-navigation/native";
+import {
+  NavigationContainer,
+  useNavigationContainerRef,
+} from "@react-navigation/native";
 import { createNativeStackNavigator } from "@react-navigation/native-stack";
+import * as Notifications from "expo-notifications";
+import { useEffect } from "react";
 import { ActivityIndicator, StyleSheet, Text, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { PrimaryButton } from "../components/Buttons";
 import { useApp } from "../context/AppContext";
+import { syncReminders } from "../lib/reminders";
 import { AddSaleScreen } from "../screens/AddSaleScreen";
 import { CustomerHistoryScreen } from "../screens/CustomerHistoryScreen";
 import { DebtsRecordScreen } from "../screens/debts/DebtsRecordScreen";
@@ -132,7 +138,34 @@ function BootError({ message, onRetry }: { message: string; onRetry: () => void 
 }
 
 export function RootNavigator() {
-  const { status, error, retry } = useApp();
+  const { status, error, retry, businessId } = useApp();
+  const navRef = useNavigationContainerRef<RootStackParamList>();
+
+  // Rebuild the reminder schedule once the app is usable.
+  //
+  // Needed on every start, not just after a write: the OS drops scheduled
+  // notifications when the app is reinstalled or its data cleared, another
+  // phone's repayment can arrive by sync while this one was closed, and a
+  // deadline may simply have passed. Rebuilding from what is owed right now
+  // makes all three self-correcting.
+  useEffect(() => {
+    if (status !== "ready" || !businessId) return;
+    void syncReminders(businessId);
+  }, [status, businessId]);
+
+  // Tapping a reminder opens the Debts view it came from (spec §8).
+  useEffect(() => {
+    const sub = Notifications.addNotificationResponseReceivedListener(
+      (response) => {
+        const view = response.notification.request.content.data?.view;
+        if (view !== "money" && view !== "empties") return;
+        // The reminder names a customer, so land on the list where that debt
+        // is, rather than wherever the app happened to be left.
+        navRef.navigate("Tabs");
+      }
+    );
+    return () => sub.remove();
+  }, [navRef]);
 
   if (status === "loading") {
     return (
@@ -152,7 +185,7 @@ export function RootNavigator() {
   }
 
   return (
-    <NavigationContainer>
+    <NavigationContainer ref={navRef}>
       <Stack.Navigator screenOptions={{ headerShown: false }}>
         <Stack.Screen name="Tabs" component={Tabs} />
         {/* The add-sale flow sits ABOVE the tabs rather than inside Home, so

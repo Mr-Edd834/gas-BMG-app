@@ -29,6 +29,7 @@ import {
 import { needsCollecting } from "../../debts/rules";
 import { formatDate } from "../../lib/formatDate";
 import { formatMoney } from "../../lib/formatMoney";
+import { syncReminders } from "../../lib/reminders";
 import { colors } from "../../theme/colors";
 import { cardRadius, touchTarget } from "../../theme/layout";
 import type { RootStackParamList } from "../../navigation/types";
@@ -129,6 +130,12 @@ export function DebtsScreen() {
         });
         showToast(`${formatMoney(amount)} recorded`);
         reload();
+        // Rebuild the reminder schedule from what is owed NOW. If this
+        // repayment cleared the debt, its reminders simply stop existing; if
+        // it was partial, the same deadline is rescheduled with the smaller
+        // amount (spec §8). Deliberately not awaited — a reminder failing to
+        // reschedule must never make a recorded payment look like it failed.
+        void syncReminders(businessId);
       } catch (err) {
         console.error("[Debts] could not save the repayment", err);
         showToast("NOT saved — the repayment was not recorded");
@@ -154,6 +161,7 @@ export function DebtsScreen() {
         });
         showToast(`${qty} ${qty === 1 ? "empty" : "empties"} returned`);
         reload();
+        void syncReminders(businessId);
       } catch (err) {
         console.error("[Debts] could not save the return", err);
         showToast("NOT saved — the return was not recorded");

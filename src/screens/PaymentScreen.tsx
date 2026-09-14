@@ -21,6 +21,7 @@ import { createSale } from "../db/queries/sales";
 import { formatDateTime } from "../lib/formatDate";
 import { formatMoney } from "../lib/formatMoney";
 import { captureReceiptPhoto } from "../lib/receiptPhoto";
+import { syncReminders } from "../lib/reminders";
 import type { RootStackParamList } from "../navigation/types";
 import { cartTotal } from "../sales/types";
 import { colors } from "../theme/colors";
@@ -123,6 +124,12 @@ export function PaymentScreen({ route, navigation }: Props) {
         note: note.trim().length > 0 ? note.trim() : null,
         receiptPhotoLocalPath: photoPath,
       });
+
+      // A credit sale creates a debt, which needs its day-6 and day-7
+      // reminders (spec Part C §2 §8). Not awaited: the sale is already safely
+      // written, and a reminder that fails to schedule must never make a saved
+      // sale look unsaved. The next sync picks it up regardless.
+      if (onCredit > 0) void syncReminders(businessId);
 
       // Straight back to the wall — routine actions take no confirmation taps.
       navigation.dispatch(

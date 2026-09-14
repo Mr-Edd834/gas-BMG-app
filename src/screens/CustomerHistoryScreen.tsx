@@ -10,7 +10,6 @@ import { StatementEvent } from "../components/StatementEvent";
 import { useReadyApp } from "../context/AppContext";
 import { loadCustomerAccount, type AccountEvent } from "../db/queries/ledger";
 import { updateSaleNote } from "../db/queries/sales";
-import { formatMoney } from "../lib/formatMoney";
 import type { RootStackParamList } from "../navigation/types";
 import { colors } from "../theme/colors";
 import { cardRadius } from "../theme/layout";
@@ -40,8 +39,6 @@ export function CustomerHistoryScreen({ route, navigation }: Props) {
   const { customerId, customerName } = route.params;
 
   const [events, setEvents] = useState<AccountEvent[] | null>(null);
-  const [owed, setOwed] = useState(0);
-  const [repaid, setRepaid] = useState(0);
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [noteError, setNoteError] = useState<string | null>(null);
@@ -56,8 +53,6 @@ export function CustomerHistoryScreen({ route, navigation }: Props) {
         .then((account) => {
           if (cancelled) return;
           setEvents(account.events);
-          setOwed(account.owedMoney);
-          setRepaid(account.totalRepaid);
           setLoadError(null);
         })
         .catch((err) => {
@@ -110,27 +105,6 @@ export function CustomerHistoryScreen({ route, navigation }: Props) {
     }
   }, []);
 
-  // Where this customer stands right now, above their history.
-  const header = (
-    <View style={styles.summary}>
-      <View style={styles.summaryHalf}>
-        <Text style={styles.summaryLabel}>STILL OWED</Text>
-        <Text
-          style={[styles.summaryValue, owed > 0 ? styles.owed : styles.clear]}
-        >
-          {formatMoney(owed)}
-        </Text>
-      </View>
-      <View style={styles.summaryDivider} />
-      <View style={styles.summaryHalf}>
-        <Text style={styles.summaryLabel}>PAID BACK SO FAR</Text>
-        <Text style={[styles.summaryValue, styles.clear]}>
-          {formatMoney(repaid)}
-        </Text>
-      </View>
-    </View>
-  );
-
   return (
     <SafeAreaView style={styles.screen} edges={["top", "left", "right"]}>
       <ScreenHeader
@@ -157,7 +131,6 @@ export function CustomerHistoryScreen({ route, navigation }: Props) {
         <FlatList
           data={events}
           keyExtractor={(e) => `${e.kind}:${e.id}`}
-          ListHeaderComponent={events.length > 0 ? header : null}
           contentContainerStyle={[
             styles.content,
             { paddingBottom: 20 + insets.bottom },
