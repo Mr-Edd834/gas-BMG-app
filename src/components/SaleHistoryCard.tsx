@@ -1,13 +1,7 @@
 import { Ionicons } from "@expo/vector-icons";
 import { useState } from "react";
-import {
-  Image,
-  Pressable,
-  StyleSheet,
-  Text,
-  TextInput,
-  View,
-} from "react-native";
+import { Pressable, StyleSheet, Text, TextInput, View } from "react-native";
+import { PhotoViewer } from "./PhotoViewer";
 import type { SaleRecord } from "../db/queries/sales";
 import {
   debtPrincipal,
@@ -265,10 +259,12 @@ export function SaleHistoryCard({
           )}
 
           {sale.receiptPhotoLocalPath && (
-            <Image
-              source={{ uri: sale.receiptPhotoLocalPath }}
-              style={styles.photo}
-              resizeMode="cover"
+            // Tappable to full screen: a receipt is only useful as evidence if
+            // it can actually be read, and that is exactly when someone is
+            // disputing a sale.
+            <PhotoViewer
+              uri={sale.receiptPhotoLocalPath}
+              thumbStyle={styles.photo}
               accessibilityLabel="Receipt photo for this sale"
             />
           )}

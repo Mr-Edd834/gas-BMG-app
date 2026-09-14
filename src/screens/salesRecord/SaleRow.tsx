@@ -1,4 +1,5 @@
-import { Image, StyleSheet, Text, View } from "react-native";
+import { StyleSheet, Text, View } from "react-native";
+import { PhotoViewer } from "../../components/PhotoViewer";
 import { debtPrincipal, saleGoodsTotal } from "../../debts/rules";
 import { formatDateTime } from "../../lib/formatDate";
 import { formatMoney } from "../../lib/formatMoney";
@@ -67,11 +68,7 @@ export function SaleRow({ sale }: { sale: SaleRecord }) {
             </View>
           )}
           {sale.receiptPhotoLocalPath && (
-            <Image
-              source={{ uri: sale.receiptPhotoLocalPath }}
-              style={styles.thumb}
-              accessibilityLabel="Receipt photo"
-            />
+            <PhotoViewer uri={sale.receiptPhotoLocalPath} size={48} />
           )}
         </View>
       )}
@@ -165,13 +162,5 @@ const styles = StyleSheet.create({
     fontSize: 12,
     lineHeight: 17,
     color: colors.ink,
-  },
-  // A thumbnail, not a block — most rows have no photo and the ones that do
-  // should not dominate the list (spec §3).
-  thumb: {
-    width: 48,
-    height: 48,
-    borderRadius: 8,
-    backgroundColor: colors.neutral,
   },
 });
