@@ -239,28 +239,46 @@ export function DebtsScreen() {
           </Pressable>
         </View>
 
-        <View style={styles.summaryRow}>
+        {/* Outstanding, then the way into the history of how it got there. */}
+        <View style={styles.summaryCard}>
+          <Text style={styles.summaryLabel}>
+            {view === "money" ? "OUTSTANDING NOW" : "STILL OUT NOW"}
+          </Text>
           <Text style={styles.summary}>
             {view === "money"
               ? `${formatMoney(moneyTotal)} outstanding`
               : `${emptiesTotal} ${emptiesTotal === 1 ? "empty" : "empties"} out`}
           </Text>
-          {/* The list above shows what is STILL owed; this shows what has
-              happened, including everything already settled. A debt that is
-              paid off disappears from the list and lives only here — which is
-              what makes the record able to answer "did they ever pay?". */}
-          <Pressable
-            accessibilityRole="button"
-            onPress={() => navigation.navigate("DebtsRecord", { view })}
-            style={({ pressed }) => [
-              styles.recordButton,
-              pressed && styles.pressed,
-            ]}
-          >
-            <Ionicons name="list" size={15} color={colors.blue} />
-            <Text style={styles.recordButtonText}>View record</Text>
-          </Pressable>
         </View>
+
+        {/* The list above shows what is STILL owed; the record shows what has
+            HAPPENED, including everything already settled. A debt paid off
+            disappears from the list and lives only in the record — which is
+            what lets it answer "did they ever actually pay?".
+            The label names which record it opens rather than just saying
+            "View record": following the toggle silently meant that from the
+            money view there was no sign the empties record existed at all. */}
+        <Pressable
+          accessibilityRole="button"
+          onPress={() => navigation.navigate("DebtsRecord", { view })}
+          style={({ pressed }) => [
+            styles.recordButton,
+            pressed && styles.pressed,
+          ]}
+        >
+          <Ionicons name="list" size={18} color={colors.white} />
+          <Text style={styles.recordButtonText}>
+            {view === "money"
+              ? "View money record"
+              : "View empties record"}
+          </Text>
+          <Ionicons
+            name="chevron-forward"
+            size={16}
+            color={colors.white}
+            style={styles.recordChevron}
+          />
+        </Pressable>
 
         {view === "money" ? (
           <>
@@ -625,29 +643,49 @@ const styles = StyleSheet.create({
   toggleOn: { backgroundColor: colors.ink },
   toggleLabel: { fontSize: 14, fontWeight: "600", color: colors.muted },
   toggleLabelOn: { color: colors.white, fontWeight: "700" },
-  summaryRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
-    gap: 10,
+  // The outstanding figure gets its own amber-tinted card, matching how owed
+  // money is coloured everywhere else in the section, instead of sitting as a
+  // loose line of text.
+  summaryCard: {
+    backgroundColor: colors.amberBg,
+    borderWidth: 1,
+    borderColor: colors.amber,
+    borderRadius: cardRadius,
+    paddingHorizontal: 14,
+    paddingVertical: 12,
     marginTop: 12,
+    gap: 2,
   },
+  summaryLabel: {
+    fontSize: 11,
+    letterSpacing: 1,
+    fontWeight: "700",
+    color: colors.amber,
+  },
+  // Full width and ink-filled, directly under the outstanding card. It was a
+  // small pale pill floating beside the total, which read as decoration rather
+  // than a way into a whole screen of history.
   recordButton: {
     flexDirection: "row",
     alignItems: "center",
-    gap: 6,
-    backgroundColor: colors.blueBg,
-    borderRadius: 999,
-    paddingHorizontal: 12,
-    paddingVertical: 8,
+    gap: 10,
+    minHeight: touchTarget + 6,
+    backgroundColor: colors.ink,
+    borderRadius: cardRadius,
+    paddingHorizontal: 16,
+    marginTop: 10,
   },
   recordButtonText: {
-    fontSize: 13,
+    flex: 1,
+    fontSize: 15,
     fontWeight: "700",
-    color: colors.blue,
+    color: colors.white,
+  },
+  recordChevron: {
+    opacity: 0.75,
   },
   summary: {
-    fontSize: 15,
+    fontSize: 20,
     fontWeight: "700",
     color: colors.amber,
   },

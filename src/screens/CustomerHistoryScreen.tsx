@@ -1,87 +1,107 @@
+import { useFocusEffect } from "@react-navigation/native";
 import type { NativeStackScreenProps } from "@react-navigation/native-stack";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useState } from "react";
 import { ActivityIndicator, FlatList, StyleSheet, Text, View } from "react-native";
 import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
 import { LoadError } from "../components/LoadError";
 import { SaleHistoryCard } from "../components/SaleHistoryCard";
 import { ScreenHeader } from "../components/ScreenHeader";
+import { StatementEvent } from "../components/StatementEvent";
 import { useReadyApp } from "../context/AppContext";
-import {
-  listCustomerSales,
-  updateSaleNote,
-  type SaleRecord,
-} from "../db/queries/sales";
+import { loadCustomerAccount, type AccountEvent } from "../db/queries/ledger";
+import { updateSaleNote } from "../db/queries/sales";
+import { formatMoney } from "../lib/formatMoney";
 import type { RootStackParamList } from "../navigation/types";
 import { colors } from "../theme/colors";
+import { cardRadius } from "../theme/layout";
 
 type Props = NativeStackScreenProps<RootStackParamList, "CustomerHistory">;
 
-// VIEW PREVIOUS SALES — one customer's history (spec Part C §1 §6).
+// ONE CUSTOMER'S STATEMENT — everything that has passed between the shop and
+// this person, newest first.
 //
-// Reached from any tab, including the pinned Quick Sale tab, where it shows
-// every quick sale ever made (they all share that one customer row).
+// This screen has this shape because of a real scenario: a customer takes
+// cylinders on credit twice, then claims to have sent M-Pesa for the first.
+// Answering that by cross-referencing the sales record against the debts
+// record means two screens of hunting in front of a sceptical customer, and it
+// reads as evasion even when the shop is right.
+//
+// One timeline answers it instead — what they took, what came back, when, with
+// every payment naming the sale it settled. The absence of a third payment
+// becomes visible in context rather than asserted from elsewhere. She can hand
+// the phone over.
+//
+// Deviates from spec Part C §1 §6, which scopes this screen to sales only, on
+// Edd's instruction (2026-09-14). The note remains the one editable thing
+// here; repayments and returns are immutable like all history (G4/G5).
 export function CustomerHistoryScreen({ route, navigation }: Props) {
   const { businessId } = useReadyApp();
   const insets = useSafeAreaInsets();
   const { customerId, customerName } = route.params;
 
-  const [sales, setSales] = useState<SaleRecord[] | null>(null);
+  const [events, setEvents] = useState<AccountEvent[] | null>(null);
+  const [owed, setOwed] = useState(0);
+  const [repaid, setRepaid] = useState(0);
   const [expandedId, setExpandedId] = useState<string | null>(null);
-  // Separate from an empty list: "no sales yet" is true of every new tab,
-  // so a failed read must not borrow that message.
   const [loadError, setLoadError] = useState<string | null>(null);
   const [noteError, setNoteError] = useState<string | null>(null);
   const [attempt, setAttempt] = useState(0);
 
-  useEffect(() => {
-    let cancelled = false;
-    listCustomerSales(businessId, customerId)
-      .then((rows) => {
-        if (cancelled) return;
-        setSales(rows);
-        setLoadError(null);
-      })
-      .catch((err) => {
-        console.error("[History] could not load sales", err);
-        if (cancelled) return;
-        // Not setSales([]) — that rendered a fault as "No sales recorded yet."
-        setLoadError(err instanceof Error ? err.message : String(err));
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [businessId, customerId, attempt]);
+  // Reloads on focus, so a repayment logged over in Debts appears here the
+  // moment she comes back.
+  useFocusEffect(
+    useCallback(() => {
+      let cancelled = false;
+      loadCustomerAccount(businessId, customerId)
+        .then((account) => {
+          if (cancelled) return;
+          setEvents(account.events);
+          setOwed(account.owedMoney);
+          setRepaid(account.totalRepaid);
+          setLoadError(null);
+        })
+        .catch((err) => {
+          console.error("[Statement] could not load", err);
+          if (cancelled) return;
+          // Never setEvents([]) — an empty statement is a real answer for a new
+          // tab, so a failed read must not borrow that message.
+          setLoadError(err instanceof Error ? err.message : String(err));
+        });
+      return () => {
+        cancelled = true;
+      };
+    }, [businessId, customerId, attempt])
+  );
 
-  // The only write this screen can make. It updates the note column and
-  // nothing else — see the rule in SaleHistoryCard and updateSaleNote.
   const saveNote = useCallback(async (saleId: string, note: string) => {
     const trimmed = note.trim();
-    // Remember what was on screen before, so a failed write can be undone.
     let previous: string | null = null;
-    // Optimistic: the local write is immediate and offline-safe, so showing
-    // the new note straight away is honest, not a guess (G8).
-    setSales((prev) => {
-      if (prev === null) return prev;
-      return prev.map((sale) => {
-        if (sale.id !== saleId) return sale;
-        previous = sale.note;
-        return { ...sale, note: trimmed.length > 0 ? trimmed : null };
-      });
-    });
+    setEvents((prev) =>
+      prev === null
+        ? prev
+        : prev.map((e) => {
+            if (e.kind !== "sale" || e.sale.id !== saleId) return e;
+            previous = e.sale.note;
+            return {
+              ...e,
+              sale: { ...e.sale, note: trimmed.length > 0 ? trimmed : null },
+            };
+          })
+    );
     try {
       await updateSaleNote(saleId, note);
       setNoteError(null);
     } catch (err) {
-      console.error("[History] could not save the note", err);
-      // An optimistic update that is never corrected becomes a lie: the note
-      // sits on screen looking saved while the database has the old value,
-      // and she finds out only when it disappears on a later visit. Put the
-      // real value back and say what happened.
-      setSales((prev) =>
+      console.error("[Statement] could not save the note", err);
+      // Roll the optimistic update back rather than leave a note on screen
+      // that was never written to the database.
+      setEvents((prev) =>
         prev === null
           ? prev
-          : prev.map((sale) =>
-              sale.id === saleId ? { ...sale, note: previous } : sale
+          : prev.map((e) =>
+              e.kind === "sale" && e.sale.id === saleId
+                ? { ...e, sale: { ...e.sale, note: previous } }
+                : e
             )
       );
       setNoteError(
@@ -90,56 +110,78 @@ export function CustomerHistoryScreen({ route, navigation }: Props) {
     }
   }, []);
 
+  // Where this customer stands right now, above their history.
+  const header = (
+    <View style={styles.summary}>
+      <View style={styles.summaryHalf}>
+        <Text style={styles.summaryLabel}>STILL OWED</Text>
+        <Text
+          style={[styles.summaryValue, owed > 0 ? styles.owed : styles.clear]}
+        >
+          {formatMoney(owed)}
+        </Text>
+      </View>
+      <View style={styles.summaryDivider} />
+      <View style={styles.summaryHalf}>
+        <Text style={styles.summaryLabel}>PAID BACK SO FAR</Text>
+        <Text style={[styles.summaryValue, styles.clear]}>
+          {formatMoney(repaid)}
+        </Text>
+      </View>
+    </View>
+  );
+
   return (
     <SafeAreaView style={styles.screen} edges={["top", "left", "right"]}>
       <ScreenHeader
         title={customerName}
-        subtitle="Previous sales"
+        subtitle="Statement"
         onBack={() => navigation.goBack()}
       />
 
-      {noteError !== null && (
-        <Text style={styles.noteError}>{noteError}</Text>
-      )}
+      {noteError !== null && <Text style={styles.noteError}>{noteError}</Text>}
 
-      {loadError !== null && sales === null ? (
+      {loadError !== null && events === null ? (
         <View style={styles.errorPad}>
           <LoadError
-            what={`${customerName}'s previous sales`}
+            what={`${customerName}'s statement`}
             detail={loadError}
             onRetry={() => setAttempt((n) => n + 1)}
           />
         </View>
-      ) : sales === null ? (
+      ) : events === null ? (
         <View style={styles.centered}>
           <ActivityIndicator color={colors.blue} />
         </View>
       ) : (
         <FlatList
-          data={sales}
-          keyExtractor={(sale) => sale.id}
-          // Last card would otherwise come to rest under Android's nav keys.
+          data={events}
+          keyExtractor={(e) => `${e.kind}:${e.id}`}
+          ListHeaderComponent={events.length > 0 ? header : null}
           contentContainerStyle={[
             styles.content,
             { paddingBottom: 20 + insets.bottom },
           ]}
           keyboardShouldPersistTaps="handled"
-          renderItem={({ item }) => (
-            <SaleHistoryCard
-              sale={item}
-              expanded={expandedId === item.id}
-              onToggle={() =>
-                setExpandedId((current) =>
-                  current === item.id ? null : item.id
-                )
-              }
-              onSaveNote={(note) => saveNote(item.id, note)}
-            />
-          )}
+          renderItem={({ item }) =>
+            item.kind === "sale" ? (
+              <SaleHistoryCard
+                sale={item.sale}
+                expanded={expandedId === item.sale.id}
+                onToggle={() =>
+                  setExpandedId((cur) =>
+                    cur === item.sale.id ? null : item.sale.id
+                  )
+                }
+                onSaveNote={(note) => saveNote(item.sale.id, note)}
+              />
+            ) : (
+              <StatementEvent event={item} />
+            )
+          }
           ItemSeparatorComponent={() => <View style={styles.gap} />}
           ListEmptyComponent={
-            // A brand-new tab, or Quick Sale before any use.
-            <Text style={styles.empty}>No sales recorded yet.</Text>
+            <Text style={styles.empty}>Nothing recorded yet.</Text>
           }
         />
       )}
@@ -148,21 +190,37 @@ export function CustomerHistoryScreen({ route, navigation }: Props) {
 }
 
 const styles = StyleSheet.create({
-  screen: {
-    flex: 1,
-    backgroundColor: colors.paper,
-  },
-  centered: {
-    flex: 1,
+  screen: { flex: 1, backgroundColor: colors.paper },
+  centered: { flex: 1, alignItems: "center", justifyContent: "center" },
+  content: { padding: 20 },
+  errorPad: { paddingHorizontal: 20 },
+  gap: { height: 12 },
+  summary: {
+    flexDirection: "row",
     alignItems: "center",
-    justifyContent: "center",
+    backgroundColor: colors.white,
+    borderWidth: 1,
+    borderColor: colors.line,
+    borderRadius: cardRadius,
+    padding: 14,
+    marginBottom: 14,
   },
-  content: {
-    padding: 20,
+  summaryHalf: { flex: 1, gap: 2 },
+  summaryDivider: {
+    width: 1,
+    alignSelf: "stretch",
+    backgroundColor: colors.line,
+    marginHorizontal: 12,
   },
-  errorPad: {
-    paddingHorizontal: 20,
+  summaryLabel: {
+    fontSize: 10,
+    letterSpacing: 0.8,
+    fontWeight: "700",
+    color: colors.muted,
   },
+  summaryValue: { fontSize: 18, fontWeight: "700" },
+  owed: { color: colors.amber },
+  clear: { color: colors.green },
   noteError: {
     fontSize: 13,
     lineHeight: 18,
@@ -170,9 +228,6 @@ const styles = StyleSheet.create({
     backgroundColor: colors.amberBg,
     paddingHorizontal: 20,
     paddingVertical: 10,
-  },
-  gap: {
-    height: 12,
   },
   empty: {
     fontSize: 14,

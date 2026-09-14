@@ -53,11 +53,11 @@ export function CustomerTabCard({
       <View style={styles.footer}>
         <Pressable
           accessibilityRole="button"
-          accessibilityLabel={`View previous sales for ${tab.name}`}
+          accessibilityLabel={`View statement for ${tab.name}`}
           onPress={onViewHistory}
           style={({ pressed }) => [styles.footerButton, pressed && styles.pressed]}
         >
-          <Text style={styles.viewLabel}>View previous sales</Text>
+          <Text style={styles.viewLabel}>View statement</Text>
         </Pressable>
 
         <View style={styles.divider} />
