@@ -155,11 +155,57 @@ export const SCHEMA_STATEMENTS: string[] = [
   );`,
   `CREATE INDEX IF NOT EXISTS idx_stock_events_item ON stock_events(business_id, scope, brand, size);`,
   `CREATE INDEX IF NOT EXISTS idx_stock_events_source ON stock_events(source_type, source_id);`,
+
+  // One dated repayment against ONE specific debt (spec Part C §2 §4).
+  //
+  // sale_id, not just customer_id: every credit sale is its own debt with its
+  // own fixed 7-day deadline (G3), so "Musa paid 500" is meaningless until you
+  // know WHICH of Musa's three debts it was against. Attaching a payment to the
+  // customer in general would make the deadlines unusable.
+  //
+  // Append-only. Three installments are three rows, never one row edited three
+  // times — that is what makes the history a record rather than a running
+  // total, and it is why a balance can always be recomputed from scratch.
+  `CREATE TABLE IF NOT EXISTS repayments (
+    id TEXT PRIMARY KEY NOT NULL,
+    business_id TEXT NOT NULL REFERENCES businesses(id),
+    sale_id TEXT NOT NULL REFERENCES sales(id),
+    customer_id TEXT NOT NULL REFERENCES customers(id),
+    staff_id TEXT NOT NULL REFERENCES staff(id),
+    amount REAL NOT NULL,
+    paid_at TEXT NOT NULL,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+    synced INTEGER NOT NULL DEFAULT 0
+  );`,
+  `CREATE INDEX IF NOT EXISTS idx_repayments_sale ON repayments(sale_id);`,
+  `CREATE INDEX IF NOT EXISTS idx_repayments_paid_at ON repayments(paid_at DESC);`,
+  `CREATE INDEX IF NOT EXISTS idx_repayments_customer ON repayments(customer_id);`,
+
+  // One dated return of empties against ONE specific cylinder line (spec §5).
+  //
+  // Keyed to sale_item_id rather than the sale, because empties are owed per
+  // brand+size: "3 K-Gas Small" and "2 Total Gas Big" on the same sale are two
+  // separate batches that come back independently. Partial returns are normal,
+  // so this is many rows per sale_item.
+  `CREATE TABLE IF NOT EXISTS empty_returns (
+    id TEXT PRIMARY KEY NOT NULL,
+    business_id TEXT NOT NULL REFERENCES businesses(id),
+    sale_item_id TEXT NOT NULL REFERENCES sale_items(id),
+    customer_id TEXT NOT NULL REFERENCES customers(id),
+    staff_id TEXT NOT NULL REFERENCES staff(id),
+    qty INTEGER NOT NULL,
+    returned_at TEXT NOT NULL,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+    synced INTEGER NOT NULL DEFAULT 0
+  );`,
+  `CREATE INDEX IF NOT EXISTS idx_empty_returns_item ON empty_returns(sale_item_id);`,
+  `CREATE INDEX IF NOT EXISTS idx_empty_returns_at ON empty_returns(returned_at DESC);`,
+  `CREATE INDEX IF NOT EXISTS idx_empty_returns_customer ON empty_returns(customer_id);`,
 ];
 
 // Deliberately NOT created here yet — each is owned by a section spec later
 // in the build order (see CLAUDE.md "Build order") and will be added, matched
 // exactly to that section's spec, when that section is built:
-//   - repayments (Debts §4): a dated repayment event against ONE specific debt (sale).
-//   - empty_returns (Debts §5): a dated partial-return event against ONE cylinder sale_item.
 //   - refilling companies / batches / batch_lines / batch photos / batch returns (Refilling §2-9).

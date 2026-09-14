@@ -9,6 +9,7 @@ import {
   View,
 } from "react-native";
 import type { SaleRecord } from "../db/queries/sales";
+import { debtPrincipal, saleGoodsTotal } from "../debts/rules";
 import { formatDateTime } from "../lib/formatDate";
 import { formatMoney } from "../lib/formatMoney";
 import { lineTotal } from "../sales/types";
@@ -44,16 +45,16 @@ export function SaleHistoryCard({
   // cash against a KSh 1,000 sale and leaves credit blank) then deriving the
   // total from them understates the sale AND silently erases the debt.
   // Items are the fact; the payment split is the claim about the fact.
-  const itemsTotal = sale.items.reduce(
-    (sum, item) => sum + lineTotal(item.qty, item.unitPrice),
-    0
-  );
+  // Both come from src/debts/rules.ts — the SAME functions the Debts section
+  // uses. Not a copy of the arithmetic: literally the same code, so this card
+  // and the Debts screen cannot drift into disagreeing about one sale.
+  const itemsTotal = saleGoodsTotal(sale.items);
 
   // Still owed, DERIVED (G1) rather than read from the stored credit_amount.
   // Deriving it makes "goods worth more than the cash received" structurally
   // impossible to render as "Fully paid" — the failure that loses real money
   // in a book this app exists to replace.
-  const owed = Math.max(0, itemsTotal - sale.cashAmount);
+  const owed = debtPrincipal(sale.items, sale.cashAmount);
 
   // A sale whose recorded payment doesn't reconcile against its goods. Shown
   // explicitly rather than hidden, because the gap is exactly where money goes

@@ -18,3 +18,20 @@ export const RECENT_BRAND_COUNT = 3;
 // a few hundred KB, so sync is fast on poor signal and local storage fills
 // slowly. Change this one number if Edd wants pristine originals instead.
 export const RECEIPT_PHOTO_QUALITY = 0.8;
+
+// How long a credit sale has before it is due, spec Part C §2 §2 (G3). This is
+// LOCKED at one week by the spec, not a preference — it is here so the number
+// appears exactly once rather than being retyped in the debt list, the record
+// and the reminder scheduler, where the three could drift apart.
+export const DEBT_DEADLINE_DAYS = 7;
+
+// "Due soon" window, spec Part C §2 §7 — explicitly OPEN and "a one-line
+// change" if the client wants 1 or 3 days instead. Days BEFORE the deadline at
+// which a debt starts showing an amber dot.
+export const DUE_SOON_DAYS = 2;
+
+// Reminder time of day, spec Part C §2 §8: "a fixed set time each day —
+// default 09:00", chosen as a calm morning slot before the day's rush.
+// Settings will later let her change the hour; the day-6/day-7 schedule logic
+// itself is locked and NOT user-controllable.
+export const REMINDER_HOUR = 9;

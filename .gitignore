@@ -46,3 +46,6 @@ eas-build.log
 
 # Downloaded build artifacts (local only)
 *.apk
+
+# compiled output for npm test
+.test-build/
