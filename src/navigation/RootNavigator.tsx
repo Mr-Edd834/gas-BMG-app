@@ -8,11 +8,11 @@ import { PrimaryButton } from "../components/Buttons";
 import { useApp } from "../context/AppContext";
 import { AddSaleScreen } from "../screens/AddSaleScreen";
 import { CustomerHistoryScreen } from "../screens/CustomerHistoryScreen";
+import { DebtsScreen } from "../screens/debts/DebtsScreen";
 import { HomeScreen } from "../screens/HomeScreen";
 import { PaymentScreen } from "../screens/PaymentScreen";
 import { StaffPickerScreen } from "../screens/StaffPickerScreen";
 import {
-  DebtsScreen,
   RefillingScreen,
   ReportsScreen,
   SalesRecordScreen,

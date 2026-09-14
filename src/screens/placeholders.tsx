@@ -1,18 +1,10 @@
 import { PlaceholderScreen } from "./PlaceholderScreen";
 
-// The five sections after Home/Sales in the build order (CLAUDE.md). Each
-// summary is the section's own one-line purpose from its spec, so the nav is
-// honest about what will live here — no invented figures, no demo content.
-
-export function DebtsScreen() {
-  return (
-    <PlaceholderScreen
-      title="Debts"
-      buildOrder={2}
-      summary="Money owed and empties owed, repayments and reminders."
-    />
-  );
-}
+// The sections still to be built, in build order (CLAUDE.md). Each summary is
+// the section's own one-line purpose from its spec, so the nav is honest about
+// what will live here — no invented figures, no demo content.
+//
+// Debts has left this file: it is built, and lives in ./debts/DebtsScreen.
 
 export function SalesRecordScreen() {
   return (
