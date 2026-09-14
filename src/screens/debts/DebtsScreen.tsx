@@ -580,10 +580,17 @@ const styles = StyleSheet.create({
     color: colors.ink,
     marginBottom: 14,
   },
+  // The selected half was white on the neutral fill — two near-identical pale
+  // greys, so which view you were on was genuinely hard to read. The active
+  // half now takes `ink` with white text: maximum contrast against both the
+  // track and the inactive label, and it matches how the app already marks a
+  // primary/selected control elsewhere.
   toggle: {
     flexDirection: "row",
     backgroundColor: colors.neutral,
     borderRadius: 12,
+    borderWidth: 1,
+    borderColor: colors.line,
     padding: 4,
     gap: 4,
   },
@@ -594,9 +601,9 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     borderRadius: 9,
   },
-  toggleOn: { backgroundColor: colors.white },
+  toggleOn: { backgroundColor: colors.ink },
   toggleLabel: { fontSize: 14, fontWeight: "600", color: colors.muted },
-  toggleLabelOn: { color: colors.ink },
+  toggleLabelOn: { color: colors.white, fontWeight: "700" },
   summary: {
     fontSize: 15,
     fontWeight: "700",
