@@ -170,7 +170,10 @@ export function PaymentScreen({ route, navigation }: Props) {
       />
 
       <ScrollView
-        contentContainerStyle={styles.content}
+        contentContainerStyle={[
+          styles.content,
+          { paddingBottom: 140 + insets.bottom },
+        ]}
         keyboardShouldPersistTaps="handled"
       >
         <View style={styles.totalCard}>

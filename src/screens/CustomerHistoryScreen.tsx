@@ -1,7 +1,7 @@
 import type { NativeStackScreenProps } from "@react-navigation/native-stack";
 import { useCallback, useEffect, useState } from "react";
 import { ActivityIndicator, FlatList, StyleSheet, Text, View } from "react-native";
-import { SafeAreaView } from "react-native-safe-area-context";
+import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
 import { LoadError } from "../components/LoadError";
 import { SaleHistoryCard } from "../components/SaleHistoryCard";
 import { ScreenHeader } from "../components/ScreenHeader";
@@ -22,6 +22,7 @@ type Props = NativeStackScreenProps<RootStackParamList, "CustomerHistory">;
 // every quick sale ever made (they all share that one customer row).
 export function CustomerHistoryScreen({ route, navigation }: Props) {
   const { businessId } = useReadyApp();
+  const insets = useSafeAreaInsets();
   const { customerId, customerName } = route.params;
 
   const [sales, setSales] = useState<SaleRecord[] | null>(null);
@@ -117,7 +118,11 @@ export function CustomerHistoryScreen({ route, navigation }: Props) {
         <FlatList
           data={sales}
           keyExtractor={(sale) => sale.id}
-          contentContainerStyle={styles.content}
+          // Last card would otherwise come to rest under Android's nav keys.
+          contentContainerStyle={[
+            styles.content,
+            { paddingBottom: 20 + insets.bottom },
+          ]}
           keyboardShouldPersistTaps="handled"
           renderItem={({ item }) => (
             <SaleHistoryCard

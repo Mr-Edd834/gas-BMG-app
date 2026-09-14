@@ -388,17 +388,21 @@ const styles = StyleSheet.create({
     color: colors.ink,
     textAlignVertical: "top",
   },
+  // Saving the note is a save action, so it takes the app's save colour
+  // (spec §1: green = paid / settled / save). It was on the neutral fill,
+  // which is #F1F2EE on a white card — technically a button, visually a word.
+  // A control nobody can see is a control nobody uses.
   noteDone: {
     minHeight: touchTarget,
     alignItems: "center",
     justifyContent: "center",
     borderRadius: 10,
-    backgroundColor: colors.neutral,
+    backgroundColor: colors.green,
   },
   noteDoneLabel: {
-    fontSize: 13,
-    fontWeight: "600",
-    color: colors.ink,
+    fontSize: 14,
+    fontWeight: "700",
+    color: colors.white,
   },
   noteBox: {
     backgroundColor: colors.surfaceSoft,

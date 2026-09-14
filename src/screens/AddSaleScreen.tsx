@@ -260,9 +260,15 @@ export function AddSaleScreen({ route, navigation }: Props) {
       />
 
       <ScrollView
+        // The bottom inset is added to the SCROLLING content too, not just the
+        // pinned bar. An open picker (airtime is the tallest — four
+        // denominations with two steppers each) scrolls past the end of the
+        // window, so without this its Cancel / Add to sale buttons come to
+        // rest underneath Android's navigation keys and cannot be pressed.
         contentContainerStyle={[
           styles.content,
           cart.length > 0 && styles.contentWithBar,
+          { paddingBottom: (cart.length > 0 ? 140 : 20) + insets.bottom },
         ]}
         keyboardShouldPersistTaps="handled"
       >
