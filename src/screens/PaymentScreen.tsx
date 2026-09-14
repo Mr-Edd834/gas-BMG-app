@@ -47,6 +47,9 @@ export function PaymentScreen({ route, navigation }: Props) {
   const [credit, setCredit] = useState("");
   const [note, setNote] = useState("");
   const [photoPath, setPhotoPath] = useState<string | null>(null);
+  // Non-null only when a save actually failed. Rendered near the save button
+  // so the failure is impossible to miss.
+  const [saveError, setSaveError] = useState<string | null>(null);
   const [attaching, setAttaching] = useState(false);
   const [saving, setSaving] = useState(false);
 
@@ -122,7 +125,16 @@ export function PaymentScreen({ route, navigation }: Props) {
       // Reaching here means local storage itself failed, not that the phone
       // is offline — offline is this app's normal state and writes succeed
       // regardless (G8).
+      //
+      // This MUST surface to the user. A silent failure here is the worst
+      // outcome the app can produce: she believes a credit sale was recorded,
+      // the shop's records say otherwise, and the debt is simply lost. Showing
+      // the real message also means a fault can be diagnosed from the counter
+      // instead of needing a developer with a cable.
       console.error("[Payment] could not save the sale", err);
+      const detail = err instanceof Error ? err.message : String(err);
+      setSaveError(detail);
+      showToast("Sale NOT saved — see the message below");
       setSaving(false);
     }
   }, [
@@ -260,6 +272,17 @@ export function PaymentScreen({ route, navigation }: Props) {
       </ScrollView>
 
       <View style={styles.bottomBar}>
+        {/* Shown ONLY when a save genuinely failed. This is not the calm
+            offline notice (G8) — offline saves succeed and say nothing. This
+            means the record was not written, so it is stated plainly. */}
+        {saveError !== null && (
+          <View style={styles.saveError}>
+            <Text style={styles.saveErrorTitle}>
+              This sale was NOT saved. Nothing was recorded.
+            </Text>
+            <Text style={styles.saveErrorDetail}>{saveError}</Text>
+          </View>
+        )}
         {/* Never gated on the reconciliation strip: the strip informs, and a
             sale that doesn't add up is hers to fix, not the app's to refuse. */}
         <PrimaryButton
@@ -277,6 +300,25 @@ export function PaymentScreen({ route, navigation }: Props) {
 }
 
 const styles = StyleSheet.create({
+  saveError: {
+    backgroundColor: colors.overpaidBg,
+    borderColor: colors.overpaid,
+    borderWidth: 1,
+    borderRadius: 12,
+    padding: 12,
+    marginBottom: 10,
+    gap: 4,
+  },
+  saveErrorTitle: {
+    fontSize: 14,
+    fontWeight: "700",
+    color: colors.overpaid,
+  },
+  saveErrorDetail: {
+    fontSize: 12,
+    color: colors.ink,
+    lineHeight: 16,
+  },
   screen: {
     flex: 1,
     backgroundColor: colors.paper,

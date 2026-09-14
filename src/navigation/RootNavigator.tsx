@@ -3,6 +3,7 @@ import { createBottomTabNavigator } from "@react-navigation/bottom-tabs";
 import { NavigationContainer } from "@react-navigation/native";
 import { createNativeStackNavigator } from "@react-navigation/native-stack";
 import { ActivityIndicator, StyleSheet, Text, View } from "react-native";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { PrimaryButton } from "../components/Buttons";
 import { useApp } from "../context/AppContext";
 import { AddSaleScreen } from "../screens/AddSaleScreen";
@@ -64,14 +65,36 @@ const TAB_SCREENS: Record<keyof TabParamList, React.ComponentType<object>> = {
   Settings: SettingsScreen,
 };
 
+// The bar's own content height, before any system UI is accounted for.
+const TAB_BAR_CONTENT_HEIGHT = 62;
+const TAB_BAR_BOTTOM_PADDING = 6;
+
 function Tabs() {
+  // Android draws the system navigation on top of the app window. With gesture
+  // navigation that strip is a few px; with 3-button navigation it is ~48dp of
+  // Back/Home/Recents sitting exactly where our tab icons are. A fixed bar
+  // height therefore collides with the system buttons on precisely the phones
+  // most of this shop's users have.
+  //
+  // useSafeAreaInsets reports how much of each edge the OS has claimed, so the
+  // bar grows by that much and its contents sit above the system buttons. The
+  // value is read at runtime, not hardcoded, because it differs per device and
+  // changes if the user switches navigation style.
+  const insets = useSafeAreaInsets();
+
   return (
     <Tab.Navigator
       screenOptions={{
         headerShown: false,
         tabBarActiveTintColor: colors.blue,
         tabBarInactiveTintColor: colors.muted,
-        tabBarStyle: styles.tabBar,
+        tabBarStyle: [
+          styles.tabBar,
+          {
+            height: TAB_BAR_CONTENT_HEIGHT + insets.bottom,
+            paddingBottom: TAB_BAR_BOTTOM_PADDING + insets.bottom,
+          },
+        ],
         tabBarLabelStyle: styles.tabLabel,
         tabBarItemStyle: styles.tabItem,
         sceneStyle: styles.scene,
@@ -146,8 +169,8 @@ const styles = StyleSheet.create({
     backgroundColor: colors.white,
     borderTopColor: colors.line,
     borderTopWidth: 1,
-    height: 62,
-    paddingBottom: 6,
+    // height and paddingBottom are applied in Tabs(), where the device's
+    // bottom safe-area inset is known. Do not put a fixed height back here.
     paddingTop: 6,
   },
   tabItem: {

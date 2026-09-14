@@ -43,3 +43,6 @@ yarn-error.*
 
 # EAS build capture log (local only)
 eas-build.log
+
+# Downloaded build artifacts (local only)
+*.apk
