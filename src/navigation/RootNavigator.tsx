@@ -11,11 +11,11 @@ import { CustomerHistoryScreen } from "../screens/CustomerHistoryScreen";
 import { DebtsScreen } from "../screens/debts/DebtsScreen";
 import { HomeScreen } from "../screens/HomeScreen";
 import { PaymentScreen } from "../screens/PaymentScreen";
+import { SalesRecordScreen } from "../screens/salesRecord/SalesRecordScreen";
 import { StaffPickerScreen } from "../screens/StaffPickerScreen";
 import {
   RefillingScreen,
   ReportsScreen,
-  SalesRecordScreen,
   SettingsScreen,
 } from "../screens/placeholders";
 import { colors } from "../theme/colors";

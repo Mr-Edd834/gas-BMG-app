@@ -4,17 +4,8 @@ import { PlaceholderScreen } from "./PlaceholderScreen";
 // the section's own one-line purpose from its spec, so the nav is honest about
 // what will live here — no invented figures, no demo content.
 //
-// Debts has left this file: it is built, and lives in ./debts/DebtsScreen.
-
-export function SalesRecordScreen() {
-  return (
-    <PlaceholderScreen
-      title="Sales Record"
-      buildOrder={3}
-      summary="The global, read-only log of every sale."
-    />
-  );
-}
+// Built sections have left this file: Debts is in ./debts/DebtsScreen, and
+// Sales Record is in ./salesRecord/SalesRecordScreen.
 
 export function RefillingScreen() {
   return (

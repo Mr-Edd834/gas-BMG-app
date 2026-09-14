@@ -144,17 +144,112 @@ export interface SaleRecord {
   note: string | null;
   receiptPhotoLocalPath: string | null;
   staffName: string;
+  // Present on every row, used by the global record. The per-customer history
+  // ignores them — it already knows whose page it is.
+  customerName: string;
+  isQuickSale: boolean;
   items: SaleItemRecord[];
 }
 
-// One customer's history, newest first (spec Part C §1 §6). For the pinned
-// Quick Sale tab this is simply every quick sale, because they all share that
-// one customer row.
-export async function listCustomerSales(
-  businessId: string,
-  customerId: string
+// Filters for the global record (spec Part C §3 §4). Applied in SQL rather
+// than in JS because the list is paginated: filtering a page after fetching it
+// would show fewer rows than the page size and silently drop matches.
+export interface SalesFilter {
+  businessId: string;
+  customerId?: string;
+  // Matches customer name, case-insensitive.
+  search?: string;
+  // 'cash' = nothing was left owing; 'credit' = something was.
+  kind?: "all" | "cash" | "credit" | "quick";
+  // ISO bounds, inclusive.
+  fromIso?: string;
+  toIso?: string;
+}
+
+// SQL shared by every sales read in the app.
+//
+// Spec §5 is explicit that the per-customer history and the global record are
+// ONE data source viewed twice, never two stores that could drift. So both go
+// through this, and the only difference between them is which filters they
+// pass.
+//
+// goods_total is computed from the line items rather than read from
+// cash + credit, for the reason established in src/debts/rules.ts: the items
+// are the fact, the payment split is a claim about it, and older rows exist
+// where the claim is wrong.
+function buildWhere(f: SalesFilter): { sql: string; args: (string | number)[] } {
+  const clauses = ["s.business_id = ?"];
+  const args: (string | number)[] = [f.businessId];
+
+  if (f.customerId) {
+    clauses.push("s.customer_id = ?");
+    args.push(f.customerId);
+  }
+  if (f.search && f.search.trim().length > 0) {
+    clauses.push("LOWER(c.name) LIKE ?");
+    args.push(`%${f.search.trim().toLowerCase()}%`);
+  }
+  if (f.fromIso) {
+    clauses.push("s.sold_at >= ?");
+    args.push(f.fromIso);
+  }
+  if (f.toIso) {
+    clauses.push("s.sold_at <= ?");
+    args.push(f.toIso);
+  }
+  if (f.kind === "quick") {
+    clauses.push("c.is_quick_sale = 1");
+  } else if (f.kind === "credit") {
+    clauses.push("(goods.total - s.cash_amount) > 0");
+  } else if (f.kind === "cash") {
+    clauses.push("(goods.total - s.cash_amount) <= 0");
+  }
+
+  return { sql: clauses.join(" AND "), args };
+}
+
+const SALES_FROM = `
+  FROM sales s
+  JOIN customers c ON c.id = s.customer_id
+  LEFT JOIN staff st ON st.id = s.staff_id
+  LEFT JOIN (
+    SELECT sale_id, SUM(CAST(ROUND(qty * unit_price) AS INTEGER)) AS total
+    FROM sale_items GROUP BY sale_id
+  ) goods ON goods.sale_id = s.id`;
+
+/**
+ * How many sales match, and what they come to (spec §4, running total).
+ *
+ * Deliberately a separate query over ALL matches rather than a sum of the
+ * loaded page — "47 sales · KSh 82,300" has to describe the whole filter, not
+ * however much has scrolled into view so far.
+ */
+export async function summariseSales(
+  filter: SalesFilter
+): Promise<{ count: number; total: number }> {
+  const db = await getDb();
+  const { sql, args } = buildWhere(filter);
+  const row = await db.getFirstAsync<{ count: number; total: number | null }>(
+    `SELECT COUNT(*) AS count, COALESCE(SUM(goods.total), 0) AS total
+     ${SALES_FROM} WHERE ${sql}`,
+    ...args
+  );
+  return { count: row?.count ?? 0, total: row?.total ?? 0 };
+}
+
+/**
+ * A page of sales, newest first.
+ *
+ * Paginated because she extends credit widely and this list only grows; the
+ * spec requires it not be loaded into memory whole.
+ */
+export async function listSales(
+  filter: SalesFilter,
+  limit = 30,
+  offset = 0
 ): Promise<SaleRecord[]> {
   const db = await getDb();
+  const { sql, args } = buildWhere(filter);
 
   const saleRows = await db.getAllAsync<{
     id: string;
@@ -164,17 +259,50 @@ export async function listCustomerSales(
     note: string | null;
     receipt_photo_local_path: string | null;
     staff_name: string | null;
+    customer_name: string;
+    is_quick_sale: 0 | 1;
   }>(
     `SELECT s.id, s.sold_at, s.cash_amount, s.credit_amount, s.note,
-            s.receipt_photo_local_path, st.name AS staff_name
-     FROM sales s
-     LEFT JOIN staff st ON st.id = s.staff_id
-     WHERE s.business_id = ? AND s.customer_id = ?
-     ORDER BY s.sold_at DESC`,
-    businessId,
-    customerId
+            s.receipt_photo_local_path, st.name AS staff_name,
+            c.name AS customer_name, c.is_quick_sale
+     ${SALES_FROM}
+     WHERE ${sql}
+     ORDER BY s.sold_at DESC
+     LIMIT ? OFFSET ?`,
+    ...args,
+    limit,
+    offset
   );
 
+  return hydrate(db, saleRows);
+}
+
+// One customer's history, newest first (spec Part C §1 §6). For the pinned
+// Quick Sale tab this is simply every quick sale, because they all share that
+// one customer row.
+export async function listCustomerSales(
+  businessId: string,
+  customerId: string
+): Promise<SaleRecord[]> {
+  // Same path as the global record — see the note on buildWhere.
+  return listSales({ businessId, customerId }, 500, 0);
+}
+
+// Attaches line items and later empty-returns to a page of sale rows.
+async function hydrate(
+  db: Awaited<ReturnType<typeof getDb>>,
+  saleRows: {
+    id: string;
+    sold_at: string;
+    cash_amount: number;
+    credit_amount: number;
+    note: string | null;
+    receipt_photo_local_path: string | null;
+    staff_name: string | null;
+    customer_name: string;
+    is_quick_sale: 0 | 1;
+  }[]
+): Promise<SaleRecord[]> {
   if (saleRows.length === 0) return [];
 
   const placeholders = saleRows.map(() => "?").join(",");
@@ -234,6 +362,8 @@ export async function listCustomerSales(
     note: s.note,
     receiptPhotoLocalPath: s.receipt_photo_local_path,
     staffName: s.staff_name ?? "",
+    customerName: s.customer_name,
+    isQuickSale: s.is_quick_sale === 1,
     items: itemsBySale.get(s.id) ?? [],
   }));
 }
