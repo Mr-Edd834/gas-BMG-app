@@ -38,7 +38,28 @@ export function SaleHistoryCard({
   const [editingNote, setEditingNote] = useState(false);
   const [draft, setDraft] = useState(sale.note ?? "");
 
-  const total = sale.cashAmount + sale.creditAmount;
+  // A sale's value is what the GOODS were worth — the sum of its immutable
+  // line items. It is deliberately NOT cash + credit: those are two numbers a
+  // human typed, and if they don't add up to the goods (she enters KSh 600
+  // cash against a KSh 1,000 sale and leaves credit blank) then deriving the
+  // total from them understates the sale AND silently erases the debt.
+  // Items are the fact; the payment split is the claim about the fact.
+  const itemsTotal = sale.items.reduce(
+    (sum, item) => sum + lineTotal(item.qty, item.unitPrice),
+    0
+  );
+
+  // Still owed, DERIVED (G1) rather than read from the stored credit_amount.
+  // Deriving it makes "goods worth more than the cash received" structurally
+  // impossible to render as "Fully paid" — the failure that loses real money
+  // in a book this app exists to replace.
+  const owed = Math.max(0, itemsTotal - sale.cashAmount);
+
+  // A sale whose recorded payment doesn't reconcile against its goods. Shown
+  // explicitly rather than hidden, because the gap is exactly where money goes
+  // missing, and history is immutable — the fix is a new entry, never a rewrite.
+  const unreconciled = sale.cashAmount + sale.creditAmount !== itemsTotal;
+
   const summary = sale.items
     .map((item) => `${item.label} ×${item.qty}`)
     .join(", ");
@@ -60,13 +81,13 @@ export function SaleHistoryCard({
       <Pressable
         accessibilityRole="button"
         accessibilityState={{ expanded }}
-        accessibilityLabel={`Sale of ${formatMoney(total)} on ${formatDateTime(sale.soldAt)}`}
+        accessibilityLabel={`Sale of ${formatMoney(itemsTotal)} on ${formatDateTime(sale.soldAt)}`}
         onPress={onToggle}
         style={({ pressed }) => [styles.collapsed, pressed && styles.pressed]}
       >
         <View style={styles.topRow}>
           <Text style={styles.when}>{formatDateTime(sale.soldAt)}</Text>
-          <Text style={styles.total}>{formatMoney(total)}</Text>
+          <Text style={styles.total}>{formatMoney(itemsTotal)}</Text>
         </View>
 
         <Text style={styles.summary} numberOfLines={2}>
@@ -74,11 +95,8 @@ export function SaleHistoryCard({
         </Text>
 
         <View style={styles.chipRow}>
-          {sale.creditAmount > 0 ? (
-            <StatusChip
-              tone="amber"
-              label={`${formatMoney(sale.creditAmount)} credit`}
-            />
+          {owed > 0 ? (
+            <StatusChip tone="amber" label={`${formatMoney(owed)} credit`} />
           ) : (
             <StatusChip tone="green" label="Fully paid" />
           )}
@@ -127,6 +145,19 @@ export function SaleHistoryCard({
                 {formatMoney(sale.creditAmount)}
               </Text>
             </View>
+            {unreconciled && (
+              // Stated plainly instead of quietly reconciled for her. The app
+              // cannot know whether the cash figure or the credit figure was
+              // the mistake, and guessing would invent a fact. What it CAN say
+              // truthfully is that the recorded payment does not match the
+              // goods — and the amber chip above already counts the shortfall
+              // as owed, so the money is never lost while she sorts it out.
+              <Text style={styles.mismatch}>
+                Recorded payment ({formatMoney(sale.cashAmount + sale.creditAmount)})
+                doesn't match the goods ({formatMoney(itemsTotal)}). The
+                difference is shown as owed.
+              </Text>
+            )}
           </View>
 
           {/* The note can always be edited OR added, whether or not one
@@ -282,6 +313,12 @@ const styles = StyleSheet.create({
   splitValue: {
     fontSize: 12,
     color: colors.ink,
+  },
+  mismatch: {
+    fontSize: 12,
+    lineHeight: 17,
+    color: colors.amber,
+    marginTop: 4,
   },
   noteEditor: {
     gap: 8,

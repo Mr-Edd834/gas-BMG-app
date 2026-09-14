@@ -57,6 +57,31 @@ export function PaymentScreen({ route, navigation }: Props) {
   const covered = parseAmount(cash) + parseAmount(credit);
   const remaining = total - covered;
 
+  // Typing the cash received auto-fills the rest as credit, so the common case
+  // ("she paid some now, owes the rest") records the debt without the
+  // shopkeeper doing arithmetic at a busy counter. Leaving credit blank after
+  // a partial cash payment was silently dropping the debt entirely — the exact
+  // revenue leak this app exists to stop.
+  //
+  // It stops auto-filling the moment she edits credit herself: after that the
+  // number is hers, and overwriting it would be the app inventing a fact.
+  const [creditTouched, setCreditTouched] = useState(false);
+
+  const onCashChange = useCallback(
+    (next: string) => {
+      setCash(next);
+      if (creditTouched) return;
+      const shortfall = total - parseAmount(next);
+      setCredit(shortfall > 0 ? String(shortfall) : "");
+    },
+    [creditTouched, total]
+  );
+
+  const onCreditChange = useCallback((next: string) => {
+    setCreditTouched(true);
+    setCredit(next);
+  }, []);
+
   const reconciliation =
     remaining === 0
       ? { label: "Fully accounted for", color: colors.green, bg: colors.greenBg }
@@ -174,7 +199,7 @@ export function PaymentScreen({ route, navigation }: Props) {
           <Text style={styles.fieldLabel}>Paid in cash now (KSh)</Text>
           <TextInput
             value={cash}
-            onChangeText={setCash}
+            onChangeText={onCashChange}
             keyboardType="numeric"
             inputMode="numeric"
             placeholder="0"
@@ -188,7 +213,7 @@ export function PaymentScreen({ route, navigation }: Props) {
           <Text style={styles.fieldLabel}>On credit (KSh)</Text>
           <TextInput
             value={credit}
-            onChangeText={setCredit}
+            onChangeText={onCreditChange}
             keyboardType="numeric"
             inputMode="numeric"
             placeholder="0"
