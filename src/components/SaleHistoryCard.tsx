@@ -146,6 +146,20 @@ export function SaleHistoryCard({
               color={colors.mutedLight}
             />
           )}
+
+          {/* The card was tappable but said nothing about it, so the detail
+              underneath was never found. A chevron is the affordance: pointing
+              down it reads as "there is more below"; flipped up it reads as
+              "this closes". It is decorative only — the whole card is still
+              the tap target, since a 13px arrow would be a miserable thing to
+              hit at a counter (44px minimum, spec §1). */}
+          <View style={styles.chevron}>
+            <Ionicons
+              name={expanded ? "chevron-up" : "chevron-down"}
+              size={16}
+              color={colors.muted}
+            />
+          </View>
         </View>
       </Pressable>
 
@@ -305,6 +319,12 @@ const styles = StyleSheet.create({
     alignItems: "center",
     gap: 8,
     marginTop: 2,
+  },
+  // marginLeft: "auto" pushes the chevron to the far right whatever chips sit
+  // beside it, so it stays in the same place on every card and the eye learns
+  // one position rather than hunting for it.
+  chevron: {
+    marginLeft: "auto",
   },
   expanded: {
     paddingHorizontal: 14,
