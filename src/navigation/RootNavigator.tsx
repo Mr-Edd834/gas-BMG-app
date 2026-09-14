@@ -8,6 +8,7 @@ import { PrimaryButton } from "../components/Buttons";
 import { useApp } from "../context/AppContext";
 import { AddSaleScreen } from "../screens/AddSaleScreen";
 import { CustomerHistoryScreen } from "../screens/CustomerHistoryScreen";
+import { DebtsRecordScreen } from "../screens/debts/DebtsRecordScreen";
 import { DebtsScreen } from "../screens/debts/DebtsScreen";
 import { HomeScreen } from "../screens/HomeScreen";
 import { PaymentScreen } from "../screens/PaymentScreen";
@@ -159,6 +160,7 @@ export function RootNavigator() {
         <Stack.Screen name="AddSale" component={AddSaleScreen} />
         <Stack.Screen name="Payment" component={PaymentScreen} />
         <Stack.Screen name="CustomerHistory" component={CustomerHistoryScreen} />
+        <Stack.Screen name="DebtsRecord" component={DebtsRecordScreen} />
       </Stack.Navigator>
     </NavigationContainer>
   );

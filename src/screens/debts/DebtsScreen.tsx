@@ -1,5 +1,6 @@
 import { Ionicons } from "@expo/vector-icons";
-import { useFocusEffect } from "@react-navigation/native";
+import { useFocusEffect, useNavigation } from "@react-navigation/native";
+import type { NativeStackNavigationProp } from "@react-navigation/native-stack";
 import { useCallback, useState } from "react";
 import {
   ActivityIndicator,
@@ -30,6 +31,7 @@ import { formatDate } from "../../lib/formatDate";
 import { formatMoney } from "../../lib/formatMoney";
 import { colors } from "../../theme/colors";
 import { cardRadius, touchTarget } from "../../theme/layout";
+import type { RootStackParamList } from "../../navigation/types";
 import { EmptyReturnSheet } from "./EmptyReturnSheet";
 import { RepaymentSheet } from "./RepaymentSheet";
 
@@ -45,6 +47,8 @@ export function DebtsScreen() {
   const { businessId, staff } = useReadyApp();
   const { showToast } = useToast();
   const insets = useSafeAreaInsets();
+  const navigation =
+    useNavigation<NativeStackNavigationProp<RootStackParamList>>();
 
   const [view, setView] = useState<View2>("money");
   const [money, setMoney] = useState<CustomerMoneyDebts[] | null>(null);
@@ -235,11 +239,28 @@ export function DebtsScreen() {
           </Pressable>
         </View>
 
-        <Text style={styles.summary}>
-          {view === "money"
-            ? `${formatMoney(moneyTotal)} outstanding`
-            : `${emptiesTotal} ${emptiesTotal === 1 ? "empty" : "empties"} out`}
-        </Text>
+        <View style={styles.summaryRow}>
+          <Text style={styles.summary}>
+            {view === "money"
+              ? `${formatMoney(moneyTotal)} outstanding`
+              : `${emptiesTotal} ${emptiesTotal === 1 ? "empty" : "empties"} out`}
+          </Text>
+          {/* The list above shows what is STILL owed; this shows what has
+              happened, including everything already settled. A debt that is
+              paid off disappears from the list and lives only here — which is
+              what makes the record able to answer "did they ever pay?". */}
+          <Pressable
+            accessibilityRole="button"
+            onPress={() => navigation.navigate("DebtsRecord", { view })}
+            style={({ pressed }) => [
+              styles.recordButton,
+              pressed && styles.pressed,
+            ]}
+          >
+            <Ionicons name="list" size={15} color={colors.blue} />
+            <Text style={styles.recordButtonText}>View record</Text>
+          </Pressable>
+        </View>
 
         {view === "money" ? (
           <>
@@ -604,11 +625,31 @@ const styles = StyleSheet.create({
   toggleOn: { backgroundColor: colors.ink },
   toggleLabel: { fontSize: 14, fontWeight: "600", color: colors.muted },
   toggleLabelOn: { color: colors.white, fontWeight: "700" },
+  summaryRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    gap: 10,
+    marginTop: 12,
+  },
+  recordButton: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    backgroundColor: colors.blueBg,
+    borderRadius: 999,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+  },
+  recordButtonText: {
+    fontSize: 13,
+    fontWeight: "700",
+    color: colors.blue,
+  },
   summary: {
     fontSize: 15,
     fontWeight: "700",
     color: colors.amber,
-    marginTop: 12,
   },
   empty: {
     fontSize: 14,

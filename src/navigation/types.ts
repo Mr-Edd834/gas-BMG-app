@@ -1,8 +1,7 @@
 import type { CartLine } from "../sales/types";
 
-// The five sections outside Home are placeholders in this build — Home/Sales
-// is built first per CLAUDE.md "Build order", and each of these gets its real
-// screen when its own section is built.
+// Sections still unbuilt are placeholders — each gets its real screen when its
+// own section is built, per CLAUDE.md "Build order".
 export type TabParamList = {
   Home: undefined;
   Debts: undefined;
@@ -29,4 +28,7 @@ export type RootStackParamList = {
     newCustomerName: string | null;
   };
   CustomerHistory: { customerId: string; customerName: string };
+  // The interleaved ledger (spec Part C §2 §6). One screen serving both
+  // directions of both kinds of debt — `view` picks which.
+  DebtsRecord: { view: "money" | "empties" };
 };
