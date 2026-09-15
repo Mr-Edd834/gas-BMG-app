@@ -195,10 +195,25 @@ the failures land on him in the morning.
 
 ---
 
+## KNOWN BUGS — deferred on purpose, do not lose these
+
+- **A customer's statement silently truncates at 500 events.**
+  `listCustomerSales` passes `limit = 500`, so anything older simply is not
+  returned and nothing says so. Harmless for a named customer; the **Quick
+  Sale** tab collects every walk-in, so at ~10/day it hits the ceiling in under
+  two months and then quietly hides history. Same class of fault as the
+  "Fully paid" bug: silent data loss on a record.
+  **Fix:** paginate the statement the way Sales Record and the Debts record
+  already do. Needs a SQL `UNION ALL` over sales + repayments + empty_returns
+  (the pattern in `listMoneyLedger`), because the three are currently merged
+  and sorted in JS and cannot be paged per-source. ~30–40 min.
+  Deferred by Edd on 2026-09-15 to finish the remaining sections first.
+
 ## Working conventions for this project
 
-- Git repo initialized during Expo scaffolding (2026-08-23). Section 1
-  (Home/Sales) is built; sections 2–6 are placeholder screens.
+- Git repo initialized during Expo scaffolding (2026-08-23). Built so far:
+  Home/Sales, Debts (incl. the record and reminders), Sales Record. Still
+  placeholders: Refilling, Reports, Settings.
 - **Where Home/Sales lives:** `src/db/queries/*` (data), `src/sales/*` (cart
   types + the single picker-state → cart-line builders), `src/screens/*`
   (Home, AddSale, Payment, CustomerHistory, StaffPicker),
