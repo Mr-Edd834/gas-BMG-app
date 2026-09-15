@@ -21,6 +21,7 @@ import path from "node:path";
 const here = path.dirname(fileURLToPath(import.meta.url));
 const require = createRequire(import.meta.url);
 const rules = require(path.join(here, "..", ".test-build", "debts", "rules.js"));
+const ids = require(path.join(here, "..", ".test-build", "refilling", "ids.js"));
 
 const {
   saleGoodsTotal,
@@ -125,6 +126,34 @@ check("no debts at all is on track", mostUrgent([]), "on-track");
 check("overdue needs collecting", needsCollecting("overdue"), true);
 check("due soon needs collecting", needsCollecting("due-soon"), true);
 check("on track does not", needsCollecting("on-track"), false);
+
+// ---------------------------------------------------------------------------
+// Refilling identifiers (spec Part C §4 §6). These are read aloud off a paper
+// receipt and matched by eye, so getting them subtly wrong is expensive.
+// ---------------------------------------------------------------------------
+const { deriveCompanyCode, uniqueCompanyCode, batchDatePart, buildBatchCode } = ids;
+
+check("initials of a hyphenated name", deriveCompanyCode("K-Gas Depot"), "KGD");
+check("dots and slashes separate words too", deriveCompanyCode("K.Gas / Depot"), "KGD");
+check("ampersand separates", deriveCompanyCode("Gas & Go Refills"), "GGR");
+check("comma separates", deriveCompanyCode("Total Gas, Nairobi"), "TGN");
+check("a single word takes three letters", deriveCompanyCode("Afrigas"), "AFR");
+check("two words give two letters", deriveCompanyCode("Sea Gas"), "SG");
+check("never more than three letters", deriveCompanyCode("Total Gas Depot Kenya"), "TGD");
+check("an empty name still yields a code", deriveCompanyCode(""), "REF");
+
+check("a free code is used as-is", uniqueCompanyCode("K-Gas Depot", ["AFR"]), "KGD");
+check("a clash appends a digit", uniqueCompanyCode("Thika Gas Dealers", ["TGD"]), "TGD2");
+check("and keeps counting", uniqueCompanyCode("Thika Gas Dealers", ["TGD", "TGD2"]), "TGD3");
+check("clash check ignores case", uniqueCompanyCode("K-Gas Depot", ["kgd"]), "KGD2");
+
+check("letter month, never numeric", batchDatePart(new Date(2026, 6, 11)), "11JUL26");
+check("day is zero-padded", batchDatePart(new Date(2026, 0, 5)), "05JAN26");
+check("december", batchDatePart(new Date(2026, 11, 31)), "31DEC26");
+
+check("full batch id", buildBatchCode("KGD", new Date(2026, 6, 11), 0), "KGD-11JUL26-01");
+check("second load the same day", buildBatchCode("KGD", new Date(2026, 6, 11), 1), "KGD-11JUL26-02");
+check("tenth load the same day", buildBatchCode("KGD", new Date(2026, 6, 11), 9), "KGD-11JUL26-10");
 
 // ---------------------------------------------------------------------------
 if (failures.length > 0) {

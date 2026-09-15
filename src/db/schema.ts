@@ -203,6 +203,116 @@ export const SCHEMA_STATEMENTS: string[] = [
   `CREATE INDEX IF NOT EXISTS idx_empty_returns_item ON empty_returns(sale_item_id);`,
   `CREATE INDEX IF NOT EXISTS idx_empty_returns_at ON empty_returns(returned_at DESC);`,
   `CREATE INDEX IF NOT EXISTS idx_empty_returns_customer ON empty_returns(customer_id);`,
+
+  // --- REFILLING (spec Part C §4) ------------------------------------------
+  // The supply side: empties leaving for a refiller and coming back full.
+  // Structurally separate from customer debt — different counterparties,
+  // different obligations — but it writes into the SAME shared stock ledger
+  // (G2), which is what keeps "empties in hand" and "full stock" truthful.
+
+  // A refilling company. The ONE deliberate exception to this app's
+  // no-phone-numbers rule (spec §0): a refiller is a business she must ring
+  // when a batch is late, not a private walk-in customer.
+  //
+  // `code` is the short auto-derived prefix that makes batch IDs readable
+  // ("KGD-11JUL26-01"). Stored rather than recomputed so an existing batch ID
+  // stays decodable even if the company is later renamed.
+  `CREATE TABLE IF NOT EXISTS refill_companies (
+    id TEXT PRIMARY KEY NOT NULL,
+    business_id TEXT NOT NULL REFERENCES businesses(id),
+    name TEXT NOT NULL,
+    director TEXT NOT NULL,
+    phone TEXT NOT NULL,
+    code TEXT NOT NULL,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+    synced INTEGER NOT NULL DEFAULT 0
+  );`,
+  `CREATE INDEX IF NOT EXISTS idx_refill_companies_biz ON refill_companies(business_id);`,
+
+  // One dated send. A batch can carry several brands at once, so the counts
+  // live in refill_batch_lines rather than here — a batch is the unit of
+  // tracking, not an individual cylinder (spec §2).
+  `CREATE TABLE IF NOT EXISTS refill_batches (
+    id TEXT PRIMARY KEY NOT NULL,
+    business_id TEXT NOT NULL REFERENCES businesses(id),
+    company_id TEXT NOT NULL REFERENCES refill_companies(id),
+    batch_code TEXT NOT NULL,
+    note TEXT,
+    sent_at TEXT NOT NULL,
+    staff_id TEXT REFERENCES staff(id),
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+    synced INTEGER NOT NULL DEFAULT 0
+  );`,
+  `CREATE INDEX IF NOT EXISTS idx_refill_batches_company ON refill_batches(company_id);`,
+  `CREATE INDEX IF NOT EXISTS idx_refill_batches_sent ON refill_batches(sent_at DESC);`,
+
+  // What went out, per brand and size. No "returned" column here (G1): how
+  // many are back is a SUM over refill_return_lines, so a batch's remaining
+  // count cannot drift from the returns that produced it.
+  `CREATE TABLE IF NOT EXISTS refill_batch_lines (
+    id TEXT PRIMARY KEY NOT NULL,
+    business_id TEXT NOT NULL REFERENCES businesses(id),
+    batch_id TEXT NOT NULL REFERENCES refill_batches(id),
+    brand TEXT NOT NULL,
+    size TEXT NOT NULL,
+    qty_sent INTEGER NOT NULL,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+    synced INTEGER NOT NULL DEFAULT 0
+  );`,
+  `CREATE INDEX IF NOT EXISTS idx_refill_batch_lines_batch ON refill_batch_lines(batch_id);`,
+
+  // One dated return against a batch. Partial returns are normal, so a batch
+  // can have many of these — which is exactly why batch IDs exist: they
+  // correlate returns that arrive weeks apart (spec §6).
+  `CREATE TABLE IF NOT EXISTS refill_returns (
+    id TEXT PRIMARY KEY NOT NULL,
+    business_id TEXT NOT NULL REFERENCES businesses(id),
+    batch_id TEXT NOT NULL REFERENCES refill_batches(id),
+    note TEXT,
+    returned_at TEXT NOT NULL,
+    staff_id TEXT REFERENCES staff(id),
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+    synced INTEGER NOT NULL DEFAULT 0
+  );`,
+  `CREATE INDEX IF NOT EXISTS idx_refill_returns_batch ON refill_returns(batch_id);`,
+  `CREATE INDEX IF NOT EXISTS idx_refill_returns_at ON refill_returns(returned_at DESC);`,
+
+  `CREATE TABLE IF NOT EXISTS refill_return_lines (
+    id TEXT PRIMARY KEY NOT NULL,
+    business_id TEXT NOT NULL REFERENCES businesses(id),
+    return_id TEXT NOT NULL REFERENCES refill_returns(id),
+    brand TEXT NOT NULL,
+    size TEXT NOT NULL,
+    qty_returned INTEGER NOT NULL,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+    synced INTEGER NOT NULL DEFAULT 0
+  );`,
+  `CREATE INDEX IF NOT EXISTS idx_refill_return_lines_return ON refill_return_lines(return_id);`,
+
+  // Photos for both a send and a return, up to 3 per slot (spec §7).
+  //
+  // One table with source_type/source_id rather than two near-identical ones:
+  // the storage rule is the same for every photo in the app (never bytes in
+  // the DB — a local path now, a cloud URL once synced), so the difference
+  // between a send photo and a return receipt is data, not structure.
+  `CREATE TABLE IF NOT EXISTS refill_photos (
+    id TEXT PRIMARY KEY NOT NULL,
+    business_id TEXT NOT NULL REFERENCES businesses(id),
+    source_type TEXT NOT NULL CHECK (source_type IN ('batch','return')),
+    source_id TEXT NOT NULL,
+    kind TEXT NOT NULL CHECK (kind IN ('cylinder','receipt')),
+    local_path TEXT NOT NULL,
+    cloud_url TEXT,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+    synced INTEGER NOT NULL DEFAULT 0
+  );`,
+  `CREATE INDEX IF NOT EXISTS idx_refill_photos_source ON refill_photos(source_type, source_id);`,
 ];
 
 // Deliberately NOT created here yet — each is owned by a section spec later
