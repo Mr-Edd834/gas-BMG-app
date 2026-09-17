@@ -1,14 +1,14 @@
-import { useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { StyleSheet, Text, View } from "react-native";
 import { PriceInput } from "../../components/PriceInput";
 import { Stepper } from "../../components/Stepper";
 import {
   buildFlatLines,
   emptyFlatOption,
-  parsePrice,
   type FlatPickerState,
 } from "../../sales/buildLines";
 import type { CartLine } from "../../sales/types";
+import { statusOfLines } from "../../sales/walkAway";
 import { colors } from "../../theme/colors";
 import { cardRadius } from "../../theme/layout";
 import { PickerShell } from "./PickerShell";
@@ -17,8 +17,12 @@ interface Props {
   commodity: "burner" | "cooker";
   options: string[];
   initial: FlatPickerState | null;
+  // Explicit — see CylinderPicker for why it is not inferred from `initial`.
+  isEditing: boolean;
   onCommit: (lines: CartLine[]) => void;
   onCancel: () => void;
+  // Reports every change upward — see CylinderPicker for why.
+  onDraftChange: (state: FlatPickerState) => void;
 }
 
 // BURNER / COOKER picker (spec Part C §1 §5) — the flat shape: one row per
@@ -28,12 +32,18 @@ export function FlatPicker({
   commodity,
   options,
   initial,
+  isEditing,
   onCommit,
   onCancel,
+  onDraftChange,
 }: Props) {
   const [state, setState] = useState<FlatPickerState>(
     initial ?? { options: {} }
   );
+
+  useEffect(() => {
+    onDraftChange(state);
+  }, [state, onDraftChange]);
 
   function rowFor(option: string) {
     return state.options[option] ?? emptyFlatOption;
@@ -53,19 +63,20 @@ export function FlatPicker({
     });
   }
 
-  const rowsWithQty = options.filter((option) => rowFor(option).qty > 0);
-  const hasQty = rowsWithQty.length > 0;
-  const priceMissing = rowsWithQty.some(
-    (option) => parsePrice(rowFor(option).price) <= 0
+  // Same readiness rule as the walk-away, on the same lines Add commits.
+  const lines = useMemo(
+    () => buildFlatLines(commodity, state, options),
+    [commodity, state, options]
   );
+  const status = statusOfLines(lines);
 
   return (
     <PickerShell
-      isEditing={initial !== null}
-      canCommit={hasQty && !priceMissing}
-      priceMissing={priceMissing}
+      isEditing={isEditing}
+      canCommit={status === "ready"}
+      priceMissing={status === "incomplete"}
       onCancel={onCancel}
-      onCommit={() => onCommit(buildFlatLines(commodity, state, options))}
+      onCommit={() => onCommit(lines)}
     >
       {options.map((option) => {
         const row = rowFor(option);

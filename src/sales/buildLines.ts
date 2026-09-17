@@ -152,6 +152,10 @@ export function buildFlatLines(
   return lines;
 }
 
+// "Is this ready?" lives in ./walkAway — kept apart from these builders because
+// they call generateId() (expo-crypto, native-only), and the readiness rule
+// needs to be testable off-device.
+
 // --- cart line → picker state (the "reopens PRE-FILLED" half) -------------
 //
 // A line carries everything its picker needs, so an edit restores qty, price,

@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Pressable, StyleSheet, Text, View } from "react-native";
 import { Stepper } from "../../components/Stepper";
 import { computeAirtimePrice } from "../../catalog/seed";
@@ -10,6 +10,7 @@ import {
   type AirtimePickerState,
 } from "../../sales/buildLines";
 import type { CartLine } from "../../sales/types";
+import { statusOfLines } from "../../sales/walkAway";
 import { formatMoney } from "../../lib/formatMoney";
 import { colors } from "../../theme/colors";
 import { cardRadius, touchTarget } from "../../theme/layout";
@@ -18,8 +19,12 @@ import { PickerShell } from "./PickerShell";
 interface Props {
   catalog: Catalog;
   initial: AirtimePickerState | null;
+  // Explicit — see CylinderPicker for why it is not inferred from `initial`.
+  isEditing: boolean;
   onCommit: (lines: CartLine[]) => void;
   onCancel: () => void;
+  // Reports every change upward — see CylinderPicker for why.
+  onDraftChange: (state: AirtimePickerState) => void;
 }
 
 // AIRTIME picker (spec Part C §1 §5).
@@ -28,10 +33,21 @@ interface Props {
 // and NO price box anywhere: the price is always 95% of total face value,
 // computed live. That rule is the reason this picker is exempt from the
 // price-required validation the other two enforce.
-export function AirtimePicker({ catalog, initial, onCommit, onCancel }: Props) {
+export function AirtimePicker({
+  catalog,
+  initial,
+  isEditing,
+  onCommit,
+  onCancel,
+  onDraftChange,
+}: Props) {
   const [state, setState] = useState<AirtimePickerState>(
     initial ?? { supplier: null, denoms: {} }
   );
+
+  useEffect(() => {
+    onDraftChange(state);
+  }, [state, onDraftChange]);
 
   function rowFor(denom: number) {
     return state.denoms[String(denom)] ?? emptyAirtimeDenom;
@@ -54,20 +70,22 @@ export function AirtimePicker({ catalog, initial, onCommit, onCancel }: Props) {
     });
   }
 
-  const hasQty = catalog.airtimeDenominations.some(
-    (denom) => airtimeCards(rowFor(denom)) > 0
+  // Same readiness rule as the walk-away, on the same lines Add commits. For
+  // airtime that can only ever be "empty" or "ready": it is auto-priced, so a
+  // missing price is impossible by construction.
+  const lines = useMemo(
+    () => buildAirtimeLines(state, catalog.airtimeDenominations),
+    [state, catalog.airtimeDenominations]
   );
+  const status = statusOfLines(lines);
 
   return (
     <PickerShell
-      isEditing={initial !== null}
-      canCommit={state.supplier !== null && hasQty}
-      // Auto-priced, so a missing price is impossible here by construction.
-      priceMissing={false}
+      isEditing={isEditing}
+      canCommit={status === "ready"}
+      priceMissing={status === "incomplete"}
       onCancel={onCancel}
-      onCommit={() =>
-        onCommit(buildAirtimeLines(state, catalog.airtimeDenominations))
-      }
+      onCommit={() => onCommit(lines)}
     >
       <View style={styles.supplierRow}>
         {catalog.airtimeSuppliers.map((supplier) => {

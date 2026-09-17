@@ -1,5 +1,5 @@
 import type { NativeStackScreenProps } from "@react-navigation/native-stack";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   ActivityIndicator,
   Pressable,
@@ -21,6 +21,9 @@ import { loadFullStockMap } from "../db/queries/stock";
 import { formatMoney } from "../lib/formatMoney";
 import type { RootStackParamList } from "../navigation/types";
 import {
+  buildAirtimeLines,
+  buildCylinderLines,
+  buildFlatLines,
   draftFromAirtimeLine,
   draftFromCylinderLine,
   draftFromFlatLine,
@@ -29,6 +32,11 @@ import {
   type FlatPickerState,
 } from "../sales/buildLines";
 import { cartTotal, COMMODITIES, type CartLine } from "../sales/types";
+import {
+  resolveWalkAway,
+  withRestored,
+  type Drafts as WalkAwayDrafts,
+} from "../sales/walkAway";
 import { colors } from "../theme/colors";
 import { cardRadius, touchTarget } from "../theme/layout";
 import type { CommodityType } from "../types/db";
@@ -55,16 +63,69 @@ interface OpenPicker {
   editing: { line: CartLine; index: number } | null;
 }
 
-// Puts a line that is currently out for editing back where it came from,
-// unchanged. Every way of ending an edit without committing routes through
-// here — Cancel, opening another commodity, deleting a different line — so
-// "cancelling an edit restores the original line unchanged (nothing lost)"
-// holds on every exit path, not just the Cancel button.
-function withRestored(cart: CartLine[], open: OpenPicker | null): CartLine[] {
-  if (!open?.editing) return cart;
-  const { line, index } = open.editing;
-  return [...cart.slice(0, index), line, ...cart.slice(index)];
+
+type AnyDraft = CylinderPickerState | AirtimePickerState | FlatPickerState;
+
+// What each picker would produce right now, through the SAME builders its Add
+// button uses — so an auto-saved line is identical to a manually added one.
+function linesFromDraft(
+  commodity: CommodityType,
+  draft: AnyDraft,
+  catalog: Catalog
+): CartLine[] {
+  switch (commodity) {
+    case "cylinder":
+      return buildCylinderLines(draft as CylinderPickerState, catalog.cylinderSizes);
+    case "airtime":
+      return buildAirtimeLines(
+        draft as AirtimePickerState,
+        catalog.airtimeDenominations
+      );
+    case "burner":
+      return buildFlatLines("burner", draft as FlatPickerState, catalog.burnerBrands);
+    case "cooker":
+      return buildFlatLines("cooker", draft as FlatPickerState, catalog.cookerOptions);
+  }
 }
+
+function initialOf(open: OpenPicker): AnyDraft | null {
+  return open.cylinder ?? open.airtime ?? open.flat ?? null;
+}
+
+export type Drafts = WalkAwayDrafts<AnyDraft>;
+
+/**
+ * Walks away from the open picker. The DECISION — keep, draft, or discard —
+ * lives in src/sales/walkAway.ts, where it is tested. This only builds the
+ * lines that decision is made about.
+ *
+ * Every walk-away path, the running total and the Move-to-payment button all
+ * go through here, so what the screen shows is exactly what would happen.
+ */
+function resolveOpenPicker(
+  open: OpenPicker | null,
+  live: AnyDraft | null,
+  cart: CartLine[],
+  drafts: Drafts,
+  catalog: Catalog | null
+): { cart: CartLine[]; drafts: Drafts } {
+  if (!open || !catalog) return { cart, drafts };
+  const state = live ?? initialOf(open);
+  return resolveWalkAway<AnyDraft>({
+    open: { commodity: open.commodity, editing: open.editing },
+    lines: state ? linesFromDraft(open.commodity, state, catalog) : [],
+    state,
+    cart,
+    drafts,
+  });
+}
+
+const COMMODITY_NAMES: Record<CommodityType, string> = {
+  cylinder: "cylinders",
+  airtime: "airtime",
+  burner: "burners",
+  cooker: "cookers",
+};
 
 // STEP 1 — build the cart (spec Part C §1 §5).
 //
@@ -94,6 +155,36 @@ export function AddSaleScreen({ route, navigation }: Props) {
   const [picker, setPicker] = useState<OpenPicker | null>(null);
   const nextInstanceId = useRef(0);
 
+  // What the open picker currently holds, reported by the picker as she types.
+  // Tagged with the session it came from so a picker that is closing cannot
+  // overwrite the one that just opened.
+  const [live, setLive] = useState<{ instanceId: number; state: AnyDraft } | null>(
+    null
+  );
+  // Unfinished entries per commodity, kept so reopening one restores them.
+  const [drafts, setDrafts] = useState<Drafts>({});
+  // Why Move to payment was refused, shown until she acts on it.
+  const [blockedBy, setBlockedBy] = useState<CommodityType | null>(null);
+
+  const openId = picker?.instanceId ?? -1;
+  const onDraftChange = useCallback(
+    (state: AnyDraft) => setLive({ instanceId: openId, state }),
+    [openId]
+  );
+  const liveState =
+    live && picker && live.instanceId === picker.instanceId ? live.state : null;
+
+  // Everything below walks away from the open picker through this.
+  const walkAway = useCallback(
+    () => resolveOpenPicker(picker, liveState, cart, drafts, catalog),
+    [picker, liveState, cart, drafts, catalog]
+  );
+
+  // The sale as it would stand if she moved on right now — the same answer the
+  // walk-away gives, so the total and the payment button never disagree with
+  // what actually happens when she taps it.
+  const projected = useMemo(() => walkAway(), [walkAway]);
+
   useEffect(() => {
     let cancelled = false;
     Promise.all([
@@ -118,25 +209,39 @@ export function AddSaleScreen({ route, navigation }: Props) {
     };
   }, [businessId, attempt]);
 
+  // Opens a fresh picker for a commodity, restoring any unfinished draft.
+  function freshSession(commodity: CommodityType, from: Drafts): OpenPicker {
+    const draft = from[commodity] ?? null;
+    return {
+      instanceId: nextInstanceId.current++,
+      commodity,
+      cylinder: commodity === "cylinder" ? (draft as CylinderPickerState | null) : null,
+      airtime: commodity === "airtime" ? (draft as AirtimePickerState | null) : null,
+      flat:
+        commodity === "burner" || commodity === "cooker"
+          ? (draft as FlatPickerState | null)
+          : null,
+      editing: null,
+    };
+  }
+
   const openPicker = useCallback(
     (commodity: CommodityType) => {
-      // Tapping the open commodity again closes it.
+      const next = walkAway();
+      setCart(next.cart);
+      setDrafts(next.drafts);
+      setBlockedBy(null);
+
+      // Tapping the open commodity again closes it — after saving what was in
+      // it, exactly as switching to a different one would.
       if (picker && picker.commodity === commodity && !picker.editing) {
         setPicker(null);
         return;
       }
-      // Walking away mid-edit is still a cancel: the line goes back untouched.
-      setCart((prev) => withRestored(prev, picker));
-      setPicker({
-        instanceId: nextInstanceId.current++,
-        commodity,
-        cylinder: null,
-        airtime: null,
-        flat: null,
-        editing: null,
-      });
+      setPicker(freshSession(commodity, next.drafts));
     },
-    [picker]
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [picker, walkAway]
   );
 
   // Tap a cart line to edit it: the line is pulled OUT of the cart and its
@@ -149,9 +254,18 @@ export function AddSaleScreen({ route, navigation }: Props) {
   // actually tapped.
   const editLine = useCallback(
     (line: CartLine) => {
-      const base = withRestored(cart, picker);
+      // Whatever was open is resolved first, so tapping a line never throws
+      // away the picker she was halfway through.
+      const next = walkAway();
+      setDrafts(next.drafts);
+      setBlockedBy(null);
+      const base = next.cart;
       const index = base.findIndex((l) => l.key === line.key);
-      if (index === -1) return;
+      if (index === -1) {
+        setCart(base);
+        setPicker(null);
+        return;
+      }
       setCart(base.filter((l) => l.key !== line.key));
       setPicker({
         instanceId: nextInstanceId.current++,
@@ -167,7 +281,7 @@ export function AddSaleScreen({ route, navigation }: Props) {
         editing: { line, index },
       });
     },
-    [cart, picker]
+    [walkAway]
   );
 
   const commitPicker = useCallback(
@@ -180,13 +294,33 @@ export function AddSaleScreen({ route, navigation }: Props) {
           ? [...prev, ...lines]
           : [...prev.slice(0, at), ...lines, ...prev.slice(at)]
       );
+      // The draft for this commodity is now in the cart; nothing to restore.
+      if (picker && !picker.editing) {
+        setDrafts((prev) => {
+          const next = { ...prev };
+          delete next[picker.commodity];
+          return next;
+        });
+      }
+      setBlockedBy(null);
       setPicker(null);
     },
     [picker]
   );
 
+  // Cancel is an explicit "throw this away" — unlike walking off, which must
+  // never lose anything. On a fresh picker it discards the entries AND the
+  // saved draft; on an edit it puts the original line back untouched.
   const cancelPicker = useCallback(() => {
-    setCart((prev) => withRestored(prev, picker));
+    setCart((prev) => withRestored(prev, picker?.editing ?? null));
+    if (picker && !picker.editing) {
+      setDrafts((prev) => {
+        const next = { ...prev };
+        delete next[picker.commodity];
+        return next;
+      });
+    }
+    setBlockedBy(null);
     setPicker(null);
   }, [picker]);
 
@@ -194,31 +328,45 @@ export function AddSaleScreen({ route, navigation }: Props) {
   // the DB. History immutability (G5) starts at save, not here.
   const removeLine = useCallback(
     (key: string) => {
-      setCart((prev) => withRestored(prev, picker).filter((l) => l.key !== key));
+      const next = walkAway();
+      setDrafts(next.drafts);
+      setCart(next.cart.filter((l) => l.key !== key));
       setPicker(null);
     },
-    [picker]
+    [walkAway]
   );
 
-  const total = cartTotal(cart);
+  // Shown from the projected sale, so a picker she has filled in counts even
+  // before it is added — and the button appears without her pressing Add.
+  const total = cartTotal(projected.cart);
+  const hasBar = projected.cart.length > 0;
   const nameMissing = isNewTab && customerName.trim().length === 0;
 
   const goToPayment = useCallback(() => {
-    // Moving on mid-edit is another way of walking away from that edit, so the
-    // pulled-out line comes back unchanged rather than being silently dropped
-    // from the sale.
-    const lines = withRestored(cart, picker);
-    setCart(lines);
-    setPicker(null);
+    const next = walkAway();
+    setCart(next.cart);
+    setDrafts(next.drafts);
 
+    // An unfinished commodity must not vanish at the last step. Reopen it with
+    // what she typed and say what it needs, rather than carrying on without it.
+    const unfinished = (Object.keys(next.drafts) as CommodityType[])[0];
+    if (unfinished) {
+      setBlockedBy(unfinished);
+      setPicker(freshSession(unfinished, next.drafts));
+      return;
+    }
+
+    setBlockedBy(null);
+    setPicker(null);
     navigation.navigate("Payment", {
-      lines,
+      lines: next.cart,
       customerId: params.mode === "existing" ? params.customerId : null,
       customerName:
         params.mode === "existing" ? params.customerName : customerName.trim(),
       newCustomerName: isNewTab ? customerName.trim() : null,
     });
-  }, [navigation, cart, picker, params, customerName, isNewTab]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [navigation, walkAway, params, customerName, isNewTab]);
 
   // Without a catalog there is nothing to sell, so this is a hard stop rather
   // than a degraded screen — offering empty pickers would invite her to build
@@ -267,8 +415,8 @@ export function AddSaleScreen({ route, navigation }: Props) {
         // rest underneath Android's navigation keys and cannot be pressed.
         contentContainerStyle={[
           styles.content,
-          cart.length > 0 && styles.contentWithBar,
-          { paddingBottom: (cart.length > 0 ? 140 : 20) + insets.bottom },
+          hasBar && styles.contentWithBar,
+          { paddingBottom: (hasBar ? 140 : 20) + insets.bottom },
         ]}
         keyboardShouldPersistTaps="handled"
       >
@@ -292,11 +440,19 @@ export function AddSaleScreen({ route, navigation }: Props) {
         <View style={styles.commodities}>
           {COMMODITIES.map((commodity) => {
             const active = picker?.commodity === commodity.key;
+            // A held draft is otherwise invisible once she has moved on, so
+            // the button carries a dot to say "there's something unfinished
+            // in here" — the same affordance problem as the sale cards'
+            // missing chevron.
+            const hasDraft = !active && drafts[commodity.key] !== undefined;
             return (
               <Pressable
                 key={commodity.key}
                 accessibilityRole="button"
                 accessibilityState={{ selected: active }}
+                accessibilityHint={
+                  hasDraft ? "Has unfinished entries waiting for a price" : undefined
+                }
                 onPress={() => openPicker(commodity.key)}
                 style={[
                   styles.commodityButton,
@@ -311,10 +467,20 @@ export function AddSaleScreen({ route, navigation }: Props) {
                 >
                   {commodity.label}
                 </Text>
+                {hasDraft && <View style={styles.draftDot} />}
               </Pressable>
             );
           })}
         </View>
+
+        {blockedBy !== null && picker?.commodity === blockedBy && (
+          <View style={styles.blocked}>
+            <Text style={styles.blockedText}>
+              Finish the {COMMODITY_NAMES[blockedBy]} before moving to payment —
+              a price is missing. Or tap Cancel to leave them out.
+            </Text>
+          </View>
+        )}
 
         {picker?.commodity === "cylinder" && (
           <CylinderPicker
@@ -323,8 +489,10 @@ export function AddSaleScreen({ route, navigation }: Props) {
             stock={stock}
             recentBrands={recentBrands}
             initial={picker.cylinder}
+            isEditing={picker.editing !== null}
             onCommit={commitPicker}
             onCancel={cancelPicker}
+            onDraftChange={onDraftChange}
           />
         )}
 
@@ -333,8 +501,10 @@ export function AddSaleScreen({ route, navigation }: Props) {
             key={picker.instanceId}
             catalog={catalog}
             initial={picker.airtime}
+            isEditing={picker.editing !== null}
             onCommit={commitPicker}
             onCancel={cancelPicker}
+            onDraftChange={onDraftChange}
           />
         )}
 
@@ -348,8 +518,10 @@ export function AddSaleScreen({ route, navigation }: Props) {
                 : catalog.cookerOptions
             }
             initial={picker.flat}
+            isEditing={picker.editing !== null}
             onCommit={commitPicker}
             onCancel={cancelPicker}
+            onDraftChange={onDraftChange}
           />
         )}
 
@@ -368,13 +540,14 @@ export function AddSaleScreen({ route, navigation }: Props) {
         )}
       </ScrollView>
 
-      {/* Running total + the move-to-payment button, visible only once the
-          cart has something in it (spec §5).
+      {/* Running total + the move-to-payment button, visible once the sale
+          would contain something (spec §5) — including a picker she has
+          filled in but not added, since walking away now adds it anyway.
 
           paddingBottom includes the device's bottom safe-area inset: Android
           draws Back/Home/Recents inside the app window, so a bar pinned to
           bottom: 0 sits underneath them on a 3-button phone. */}
-      {cart.length > 0 && (
+      {hasBar && (
         <View
           style={[
             styles.bottomBar,
@@ -463,6 +636,30 @@ const styles = StyleSheet.create({
     backgroundColor: colors.white,
     borderWidth: 1,
     borderColor: colors.line,
+  },
+  // Amber, the app's "something still owed" colour — an unfinished draft is
+  // work she still owes the sale.
+  draftDot: {
+    position: "absolute",
+    top: 6,
+    right: 6,
+    width: 8,
+    height: 8,
+    borderRadius: 4,
+    backgroundColor: colors.amber,
+  },
+  blocked: {
+    backgroundColor: colors.amberBg,
+    borderWidth: 1,
+    borderColor: colors.amber,
+    borderRadius: 10,
+    padding: 12,
+  },
+  blockedText: {
+    fontSize: 13,
+    lineHeight: 18,
+    fontWeight: "600",
+    color: colors.amber,
   },
   commodityButtonActive: {
     backgroundColor: colors.ink,

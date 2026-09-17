@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
 import { PriceInput } from "../../components/PriceInput";
 import { SearchField } from "../../components/SearchField";
@@ -13,6 +13,7 @@ import {
   type CylinderPickerState,
 } from "../../sales/buildLines";
 import type { CartLine } from "../../sales/types";
+import { statusOfLines } from "../../sales/walkAway";
 import { colors } from "../../theme/colors";
 import { cardRadius, touchTarget } from "../../theme/layout";
 import { PickerShell } from "./PickerShell";
@@ -23,8 +24,16 @@ interface Props {
   stock: Map<string, number>;
   recentBrands: string[];
   initial: CylinderPickerState | null;
+  // Said explicitly rather than inferred from `initial`: a picker restored
+  // from a held draft also starts pre-filled, but it is not an edit and its
+  // button should still read "Add to sale".
+  isEditing: boolean;
   onCommit: (lines: CartLine[]) => void;
   onCancel: () => void;
+  // Reports every change upward, so the build screen always knows what is in
+  // progress. Without it, switching to another commodity destroyed this picker
+  // and everything typed into it.
+  onDraftChange: (state: CylinderPickerState) => void;
 }
 
 // CYLINDER picker (spec Part C §1 §5).
@@ -37,13 +46,19 @@ export function CylinderPicker({
   stock,
   recentBrands,
   initial,
+  isEditing,
   onCommit,
   onCancel,
+  onDraftChange,
 }: Props) {
   const [brandSearch, setBrandSearch] = useState("");
   const [state, setState] = useState<CylinderPickerState>(
     initial ?? { brand: null, sizes: {} }
   );
+
+  useEffect(() => {
+    onDraftChange(state);
+  }, [state, onDraftChange]);
 
   const sizes = catalog.cylinderSizes;
 
@@ -88,19 +103,20 @@ export function CylinderPicker({
   // Captured once so the size rows below narrow cleanly instead of asserting.
   const selectedBrand = state.brand;
 
-  const rowsWithQty = sizes.filter((size) => rowFor(size).qty > 0);
-  const hasQty = rowsWithQty.length > 0;
-  const priceMissing = rowsWithQty.some(
-    (size) => parsePrice(rowFor(size).price) <= 0
-  );
+  // Readiness comes from the SAME rule the build screen uses when she walks
+  // away (src/sales/walkAway.ts), applied to the SAME lines the Add button
+  // commits — so "can press Add" and "gets kept when she switches" can never
+  // disagree.
+  const lines = useMemo(() => buildCylinderLines(state, sizes), [state, sizes]);
+  const status = statusOfLines(lines);
 
   return (
     <PickerShell
-      isEditing={initial !== null}
-      canCommit={hasQty && !priceMissing}
-      priceMissing={priceMissing}
+      isEditing={isEditing}
+      canCommit={status === "ready"}
+      priceMissing={status === "incomplete"}
       onCancel={onCancel}
-      onCommit={() => onCommit(buildCylinderLines(state, sizes))}
+      onCommit={() => onCommit(lines)}
     >
       <SearchField
         value={brandSearch}

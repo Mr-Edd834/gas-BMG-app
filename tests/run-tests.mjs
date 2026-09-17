@@ -22,6 +22,7 @@ const here = path.dirname(fileURLToPath(import.meta.url));
 const require = createRequire(import.meta.url);
 const rules = require(path.join(here, "..", ".test-build", "debts", "rules.js"));
 const ids = require(path.join(here, "..", ".test-build", "refilling", "ids.js"));
+const walk = require(path.join(here, "..", ".test-build", "sales", "walkAway.js"));
 
 const {
   saleGoodsTotal,
@@ -154,6 +155,112 @@ check("december", batchDatePart(new Date(2026, 11, 31)), "31DEC26");
 check("full batch id", buildBatchCode("KGD", new Date(2026, 6, 11), 0), "KGD-11JUL26-01");
 check("second load the same day", buildBatchCode("KGD", new Date(2026, 6, 11), 1), "KGD-11JUL26-02");
 check("tenth load the same day", buildBatchCode("KGD", new Date(2026, 6, 11), 9), "KGD-11JUL26-10");
+
+// ---------------------------------------------------------------------------
+// Walking away from an open picker (the add-sale flow). Found on a real phone
+// 2026-09-17: fill in cylinders, tap Airtime without pressing Add, and every
+// cylinder entry was gone. These decide whether typed-in sales are kept.
+// ---------------------------------------------------------------------------
+const { statusOfLines, resolveWalkAway, withRestored } = walk;
+
+const priced = (key, price = 1500) => ({
+  key, commodity: "cylinder", label: `K-Gas · ${key}`, brandOrSupplier: "K-Gas",
+  sizeOrDenomination: "Big", qty: 1, unitPrice: price, isAutoPriced: false,
+  emptiesReturned: 0, packs: null, singles: null,
+});
+const airtime = (key) => ({
+  key, commodity: "airtime", label: "Safaricom 10 airtime", brandOrSupplier: "Safaricom",
+  sizeOrDenomination: "10", qty: 10, unitPrice: 9.5, isAutoPriced: true,
+  emptiesReturned: null, packs: 1, singles: 0,
+});
+
+check("no lines is empty", statusOfLines([]), "empty");
+check("a priced line is ready", statusOfLines([priced("a")]), "ready");
+check("a line with no price is incomplete", statusOfLines([priced("a", 0)]), "incomplete");
+check("one unpriced line makes the whole draft incomplete",
+  statusOfLines([priced("a"), priced("b", 0)]), "incomplete");
+check("airtime is exempt from the price rule", statusOfLines([airtime("t")]), "ready");
+
+const fresh = (commodity) => ({ commodity, editing: null });
+const draftState = { brand: "K-Gas", sizes: {} };
+
+// THE bug: a finished picker walked away from must land in the cart.
+{
+  const r = resolveWalkAway({
+    open: fresh("cylinder"), lines: [priced("a")], state: draftState,
+    cart: [], drafts: {},
+  });
+  check("walking away from a finished picker adds it", r.cart.map((l) => l.key), ["a"]);
+  check("and leaves no draft behind", r.drafts, {});
+}
+{
+  const r = resolveWalkAway({
+    open: fresh("cylinder"), lines: [priced("a", 0)], state: draftState,
+    cart: [], drafts: {},
+  });
+  check("an unfinished picker is NOT added (no silent zero price)", r.cart, []);
+  check("but its entries are kept as a draft", r.drafts, { cylinder: draftState });
+}
+{
+  const r = resolveWalkAway({
+    open: fresh("cylinder"), lines: [], state: draftState,
+    cart: [priced("x")], drafts: { cylinder: draftState },
+  });
+  check("an emptied picker clears its old draft", r.drafts, {});
+  check("and leaves the cart alone", r.cart.map((l) => l.key), ["x"]);
+}
+{
+  const r = resolveWalkAway({
+    open: fresh("cylinder"), lines: [priced("a")], state: draftState,
+    cart: [priced("x")], drafts: {},
+  });
+  check("an auto-added picker goes AFTER existing lines", r.cart.map((l) => l.key), ["x", "a"]);
+}
+{
+  const r = resolveWalkAway({
+    open: fresh("airtime"), lines: [airtime("t")], state: { supplier: "Safaricom", denoms: {} },
+    cart: [], drafts: { cylinder: draftState },
+  });
+  check("resolving airtime keeps a cylinder draft untouched", r.drafts, { cylinder: draftState });
+}
+{
+  const r = resolveWalkAway({ open: null, lines: [], state: null, cart: [priced("x")], drafts: {} });
+  check("nothing open changes nothing", r.cart.map((l) => l.key), ["x"]);
+}
+
+// Edits: never lose a line the sale already had.
+{
+  const original = priced("orig");
+  const cartWithout = [priced("x"), priced("y")];
+  const editing = { line: original, index: 1 };
+
+  const ok = resolveWalkAway({
+    open: { commodity: "cylinder", editing }, lines: [priced("edited", 2000)],
+    state: draftState, cart: cartWithout, drafts: {},
+  });
+  check("a finished edit is kept, in its original place",
+    ok.cart.map((l) => l.key), ["x", "edited", "y"]);
+
+  const broken = resolveWalkAway({
+    open: { commodity: "cylinder", editing }, lines: [priced("edited", 0)],
+    state: draftState, cart: cartWithout, drafts: {},
+  });
+  check("an unfinished edit puts the ORIGINAL back, unchanged",
+    broken.cart.map((l) => l.key), ["x", "orig", "y"]);
+  check("and does not become a draft", broken.drafts, {});
+
+  const emptied = resolveWalkAway({
+    open: { commodity: "cylinder", editing }, lines: [],
+    state: draftState, cart: cartWithout, drafts: {},
+  });
+  check("an emptied edit also restores the original",
+    emptied.cart.map((l) => l.key), ["x", "orig", "y"]);
+}
+
+check("withRestored with nothing out for edit is a no-op",
+  withRestored([priced("x")], null).map((l) => l.key), ["x"]);
+check("withRestored puts a line back at index 0",
+  withRestored([priced("x")], { line: priced("o"), index: 0 }).map((l) => l.key), ["o", "x"]);
 
 // ---------------------------------------------------------------------------
 if (failures.length > 0) {
