@@ -212,8 +212,15 @@ the failures land on him in the morning.
 ## Working conventions for this project
 
 - Git repo initialized during Expo scaffolding (2026-08-23). Built so far:
-  Home/Sales, Debts (incl. the record and reminders), Sales Record. Still
-  placeholders: Refilling, Reports, Settings.
+  Home/Sales, Debts (incl. the record and reminders), Sales Record, Refilling.
+  Still placeholders: Reports, Settings.
+- **Where Refilling lives:** `src/db/queries/refilling.ts` (data),
+  `src/refilling/*` (pure: `ids.ts` company/batch codes, `batchDraft.ts` the
+  send/return grid, `reminders.ts` day-3/day-7 timing),
+  `src/screens/refilling/*` (six screens). Photos go through
+  `src/lib/photos.ts` + `src/components/PhotoSlot.tsx` (cap 3).
+  **Settings still owes Refilling** a company-code reference list
+  ("KGD = K-Gas Depot", spec §4 §3/§6).
 - **Where Home/Sales lives:** `src/db/queries/*` (data), `src/sales/*` (cart
   types + the single picker-state → cart-line builders), `src/screens/*`
   (Home, AddSale, Payment, CustomerHistory, StaffPicker),
