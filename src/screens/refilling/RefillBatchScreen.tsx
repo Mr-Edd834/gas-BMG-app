@@ -19,7 +19,7 @@ import {
   loadBatch,
   loadPhotos,
   type BatchLine,
-  type DeliveryRecord,
+  type RecordEntry,
   type RefillBatch,
 } from "../../db/queries/refilling";
 import { formatDateTime } from "../../lib/formatDate";
@@ -33,7 +33,7 @@ type Route = RouteProp<RootStackParamList, "RefillBatch">;
 interface Loaded {
   batch: RefillBatch;
   photos: { id: string; kind: "cylinder" | "receipt"; localPath: string }[];
-  returns: DeliveryRecord[];
+  returns: RecordEntry[];
 }
 
 // One batch's own screen (spec Part C §4 §5) — a batch carries a status, a
@@ -203,9 +203,7 @@ export function RefillBatchScreen() {
         ) : (
           returns.map((entry) => (
             <View key={entry.id} style={styles.returnCard}>
-              <Text style={styles.returnWhen}>
-                {formatDateTime(entry.returnedAt)}
-              </Text>
+              <Text style={styles.returnWhen}>{formatDateTime(entry.at)}</Text>
               <View style={styles.pills}>
                 {entry.lines.map((line) => (
                   <View key={`${line.brand}|${line.size}`} style={styles.pill}>

@@ -576,11 +576,18 @@ export async function loadPhotos(
   );
 }
 
-export interface DeliveryRecord {
+export type RecordKind = "sent" | "returned";
+
+export interface RecordEntry {
   id: string;
+  // Which direction this movement went. The record holds both, because the
+  // proof of what LEFT the shop matters exactly as much as the proof of what
+  // came back — and a send that was only visible while its batch was open
+  // disappeared the moment the batch closed.
+  kind: RecordKind;
   batchId: string;
   batchCode: string;
-  returnedAt: string;
+  at: string;
   note: string | null;
   staffName: string;
   lines: { brand: string; size: string; qty: number }[];
@@ -588,98 +595,174 @@ export interface DeliveryRecord {
 }
 
 /**
- * Every return ever made to one company, newest first (spec §9).
+ * One company's whole history, sends and returns interleaved, newest first
+ * (spec §9, extended to both directions).
  *
  * Per company rather than one global list: she thinks per company, and the
  * batch ID already carries the company anyway. Read-only and append-only —
  * a record only settles a dispute if it cannot be quietly altered, and with
  * three equal-permission phones an in-app delete is a delete for everyone.
+ *
+ * The two directions are merged by SQL `UNION ALL` and paged as ONE list,
+ * rather than being fetched separately and merged in JS. That is not a style
+ * preference. Page 1 of a JS merge would be "the newest 30 sends and the
+ * newest 30 returns, interleaved" — and if a company had 30 sends before its
+ * first return, that return could never appear on any page. Merging in the
+ * database means LIMIT/OFFSET walk the true combined sequence, which is the
+ * only thing a record is for. (This is the same fault still open on the
+ * customer statement — see KNOWN BUGS in CLAUDE.md.)
  */
-export async function listDeliveries(
+export async function listCompanyRecord(
   businessId: string,
   companyId: string,
   limit = 30,
   offset = 0
-): Promise<DeliveryRecord[]> {
-  return loadDeliveries(businessId, "b.company_id = ?", companyId, limit, offset);
+): Promise<RecordEntry[]> {
+  const db = await getDb();
+
+  // ORDER BY includes the id as a tiebreak. Without it, two rows sharing a
+  // timestamp — a send and its first return recorded in the same minute —
+  // have no defined order, and SQLite is free to order them differently on
+  // each query. Paging an unstable sort silently duplicates some rows and
+  // skips others.
+  const events = await db.getAllAsync<{
+    id: string;
+    kind: RecordKind;
+    batch_id: string;
+    batch_code: string;
+    at: string;
+    note: string | null;
+    staff_name: string | null;
+  }>(
+    `SELECT ev.id, ev.kind, ev.batch_id, ev.batch_code, ev.at, ev.note,
+            st.name AS staff_name
+     FROM (
+       SELECT b.id AS id, 'sent' AS kind, b.id AS batch_id,
+              b.batch_code AS batch_code, b.sent_at AS at, b.note AS note,
+              b.staff_id AS staff_id
+       FROM refill_batches b
+       WHERE b.business_id = ? AND b.company_id = ?
+       UNION ALL
+       SELECT r.id, 'returned', r.batch_id, b.batch_code, r.returned_at,
+              r.note, r.staff_id
+       FROM refill_returns r
+       JOIN refill_batches b ON b.id = r.batch_id
+       WHERE r.business_id = ? AND b.company_id = ?
+     ) ev
+     LEFT JOIN staff st ON st.id = ev.staff_id
+     ORDER BY ev.at DESC, ev.id DESC
+     LIMIT ? OFFSET ?`,
+    businessId,
+    companyId,
+    businessId,
+    companyId,
+    limit,
+    offset
+  );
+
+  return hydrateEntries(db, events);
 }
 
 /**
  * The returns already made against ONE batch (spec §5, "Returns so far").
  *
- * Same rows as the deliveries record, narrowed to one batch — which is the
- * whole reason batch IDs exist: partial returns arrive scattered over days and
- * something has to gather them back under the pile they came from.
+ * Returns only, deliberately: the batch page shows the send in its own "When
+ * sent" section directly above this list, so including it here would print
+ * the same fact twice on one screen.
  */
 export async function listBatchReturns(
   businessId: string,
   batchId: string
-): Promise<DeliveryRecord[]> {
-  return loadDeliveries(businessId, "r.batch_id = ?", batchId, 100, 0);
-}
-
-async function loadDeliveries(
-  businessId: string,
-  whereSql: string,
-  whereParam: string,
-  limit: number,
-  offset: number
-): Promise<DeliveryRecord[]> {
+): Promise<RecordEntry[]> {
   const db = await getDb();
-
-  const returns = await db.getAllAsync<{
+  const events = await db.getAllAsync<{
     id: string;
+    kind: RecordKind;
     batch_id: string;
     batch_code: string;
-    returned_at: string;
+    at: string;
     note: string | null;
     staff_name: string | null;
   }>(
-    `SELECT r.id, r.batch_id, b.batch_code, r.returned_at, r.note,
-            st.name AS staff_name
+    `SELECT r.id, 'returned' AS kind, r.batch_id, b.batch_code,
+            r.returned_at AS at, r.note, st.name AS staff_name
      FROM refill_returns r
      JOIN refill_batches b ON b.id = r.batch_id
      LEFT JOIN staff st ON st.id = r.staff_id
-     WHERE r.business_id = ? AND ${whereSql}
-     ORDER BY r.returned_at DESC
-     LIMIT ? OFFSET ?`,
+     WHERE r.business_id = ? AND r.batch_id = ?
+     ORDER BY r.returned_at DESC, r.id DESC
+     LIMIT 100`,
     businessId,
-    whereParam,
-    limit,
-    offset
+    batchId
   );
-  if (returns.length === 0) return [];
+  return hydrateEntries(db, events);
+}
 
-  const ids = returns.map((r) => r.id);
-  const placeholders = ids.map(() => "?").join(",");
-
-  const lines = await db.getAllAsync<{
-    return_id: string;
-    brand: string;
-    size: string;
-    qty_returned: number;
-  }>(
-    `SELECT return_id, brand, size, qty_returned FROM refill_return_lines
-     WHERE return_id IN (${placeholders})`,
-    ...ids
-  );
-
-  const photos = await db.getAllAsync<{
+/**
+ * Attaches each event's cylinder lines and photos.
+ *
+ * The two directions keep their quantities in different tables
+ * (`refill_batch_lines` vs `refill_return_lines`) because they mean different
+ * things — one is a promise, the other is its settlement — so they are read
+ * separately and only then flattened into the shared shape the record renders.
+ */
+async function hydrateEntries(
+  db: Awaited<ReturnType<typeof getDb>>,
+  events: {
     id: string;
-    source_id: string;
-    kind: "cylinder" | "receipt";
-    local_path: string;
-  }>(
-    `SELECT id, source_id, kind, local_path FROM refill_photos
-     WHERE source_type = 'return' AND source_id IN (${placeholders})
-     ORDER BY created_at ASC`,
-    ...ids
-  );
+    kind: RecordKind;
+    batch_id: string;
+    batch_code: string;
+    at: string;
+    note: string | null;
+    staff_name: string | null;
+  }[]
+): Promise<RecordEntry[]> {
+  if (events.length === 0) return [];
+
+  const sentIds = events.filter((e) => e.kind === "sent").map((e) => e.id);
+  const returnIds = events.filter((e) => e.kind === "returned").map((e) => e.id);
+
+  const [sentLines, returnLines, sentPhotos, returnPhotos] = await Promise.all([
+    sentIds.length === 0
+      ? []
+      : db.getAllAsync<{
+          batch_id: string;
+          brand: string;
+          size: string;
+          qty: number;
+        }>(
+          `SELECT batch_id, brand, size, qty_sent AS qty
+           FROM refill_batch_lines
+           WHERE batch_id IN (${holes(sentIds)})`,
+          ...sentIds
+        ),
+    returnIds.length === 0
+      ? []
+      : db.getAllAsync<{
+          return_id: string;
+          brand: string;
+          size: string;
+          qty: number;
+        }>(
+          `SELECT return_id, brand, size, qty_returned AS qty
+           FROM refill_return_lines
+           WHERE return_id IN (${holes(returnIds)})`,
+          ...returnIds
+        ),
+    sentIds.length === 0 ? [] : photosFor(db, "batch", sentIds),
+    returnIds.length === 0 ? [] : photosFor(db, "return", returnIds),
+  ]);
 
   const linesBy = new Map<string, { brand: string; size: string; qty: number }[]>();
-  for (const l of lines) {
+  for (const l of sentLines) {
+    const list = linesBy.get(l.batch_id) ?? [];
+    list.push({ brand: l.brand, size: l.size, qty: l.qty });
+    linesBy.set(l.batch_id, list);
+  }
+  for (const l of returnLines) {
     const list = linesBy.get(l.return_id) ?? [];
-    list.push({ brand: l.brand, size: l.size, qty: l.qty_returned });
+    list.push({ brand: l.brand, size: l.size, qty: l.qty });
     linesBy.set(l.return_id, list);
   }
 
@@ -687,22 +770,48 @@ async function loadDeliveries(
     string,
     { id: string; kind: "cylinder" | "receipt"; localPath: string }[]
   >();
-  for (const p of photos) {
+  for (const p of [...sentPhotos, ...returnPhotos]) {
     const list = photosBy.get(p.source_id) ?? [];
     list.push({ id: p.id, kind: p.kind, localPath: p.local_path });
     photosBy.set(p.source_id, list);
   }
 
-  return returns.map((r) => ({
-    id: r.id,
-    batchId: r.batch_id,
-    batchCode: r.batch_code,
-    returnedAt: r.returned_at,
-    note: r.note,
-    staffName: r.staff_name ?? "",
-    lines: (linesBy.get(r.id) ?? []).sort(
+  return events.map((e) => ({
+    id: e.id,
+    kind: e.kind,
+    batchId: e.batch_id,
+    batchCode: e.batch_code,
+    at: e.at,
+    note: e.note,
+    staffName: e.staff_name ?? "",
+    lines: (linesBy.get(e.id) ?? []).sort(
       (a, b) => a.brand.localeCompare(b.brand) || a.size.localeCompare(b.size)
     ),
-    photos: photosBy.get(r.id) ?? [],
+    photos: photosBy.get(e.id) ?? [],
   }));
+}
+
+function holes(ids: string[]): string {
+  return ids.map(() => "?").join(",");
+}
+
+async function photosFor(
+  db: Awaited<ReturnType<typeof getDb>>,
+  sourceType: "batch" | "return",
+  ids: string[]
+): Promise<
+  {
+    id: string;
+    source_id: string;
+    kind: "cylinder" | "receipt";
+    local_path: string;
+  }[]
+> {
+  return db.getAllAsync(
+    `SELECT id, source_id, kind, local_path FROM refill_photos
+     WHERE source_type = ? AND source_id IN (${holes(ids)})
+     ORDER BY created_at ASC`,
+    sourceType,
+    ...ids
+  );
 }
