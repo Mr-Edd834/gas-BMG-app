@@ -3,22 +3,21 @@ import * as ImagePicker from "expo-image-picker";
 import { RECEIPT_PHOTO_QUALITY } from "../config/tunables";
 import { generateId } from "./uuid";
 
-// Receipt photos (spec Part C §3 §6, "applies wherever photos appear").
+// Every photo in the app (spec Part C §3 §6, "applies wherever photos appear"):
+// sale receipts, and the cylinder and receipt photos a refill batch carries.
 //
-// Two rules drive everything in this file:
-//   - The DB stores only a REFERENCE. The image itself lives in the app's
-//     private storage; never put bytes in SQLite (they cripple sync).
-//   - It must NEVER block a save (G8). So nothing here throws: every failure
-//     path — no permission, cancelled, camera missing, copy failed — returns
-//     null and the sale saves without a photo.
+// Two rules drive everything here:
+//   - The DB stores only a REFERENCE. The image lives in the app's private
+//     storage; never put bytes in SQLite (they cripple sync).
+//   - Nothing throws. Every failure path — no permission, cancelled, camera
+//     missing, copy failed — returns null, so a photo can never block a save
+//     (G8). Refilling is the one place a photo is *required*, and that is
+//     enforced by its own save button, not by this function exploding.
 //
-// The Supabase Storage backup half of that spec belongs to the sync routine,
-// not to this section; the sale row already carries a receipt_photo_cloud_url
-// column for it to fill in later.
+// The Supabase Storage backup half of that spec belongs to the sync routine;
+// the rows already carry a cloud_url column for it to fill in later.
 
-const RECEIPTS_DIR = "receipts";
-
-export interface ReceiptPhoto {
+export interface CapturedPhoto {
   localPath: string;
 }
 
@@ -26,8 +25,8 @@ export interface ReceiptPhoto {
 // the system reclaiming cache space. The moment this returns, the local file
 // is the only copy that exists — which is exactly why Settings' future
 // "free up space" action may only delete photos confirmed backed up.
-function persistLocally(sourceUri: string): string {
-  const dir = new Directory(Paths.document, RECEIPTS_DIR);
+function persistLocally(sourceUri: string, subdir: string): string {
+  const dir = new Directory(Paths.document, subdir);
   if (!dir.exists) {
     dir.create({ intermediates: true, idempotent: true });
   }
@@ -42,10 +41,14 @@ function persistLocally(sourceUri: string): string {
   return destination.uri;
 }
 
-// Opens the camera (it is a receipt, at a counter). If the camera is
-// unavailable or its permission is refused, quietly falls back to the photo
-// library rather than dead-ending.
-export async function captureReceiptPhoto(): Promise<ReceiptPhoto | null> {
+/**
+ * Opens the camera, falling back to the photo library if the camera is
+ * unavailable or refused — rather than dead-ending on a phone whose camera
+ * permission was declined once, months ago.
+ */
+export async function capturePhoto(
+  subdir: string
+): Promise<CapturedPhoto | null> {
   try {
     const options: ImagePicker.ImagePickerOptions = {
       mediaTypes: ["images"],
@@ -68,11 +71,14 @@ export async function captureReceiptPhoto(): Promise<ReceiptPhoto | null> {
     const asset = result.assets?.[0];
     if (!asset?.uri) return null;
 
-    return { localPath: persistLocally(asset.uri) };
+    return { localPath: persistLocally(asset.uri, subdir) };
   } catch (err) {
-    // Logged, not surfaced as an error state: an unavailable camera is not a
-    // reason to interrupt a sale.
-    console.warn("[receiptPhoto] could not attach a photo", err);
+    // Logged, not surfaced: an unavailable camera is not a reason to
+    // interrupt what she was doing.
+    console.warn("[photos] could not capture a photo", err);
     return null;
   }
 }
+
+export const captureReceiptPhoto = () => capturePhoto("receipts");
+export const captureRefillPhoto = () => capturePhoto("refills");

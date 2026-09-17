@@ -20,7 +20,7 @@ import { createCustomer } from "../db/queries/customers";
 import { createSale } from "../db/queries/sales";
 import { formatDateTime } from "../lib/formatDate";
 import { formatMoney } from "../lib/formatMoney";
-import { captureReceiptPhoto } from "../lib/receiptPhoto";
+import { captureReceiptPhoto } from "../lib/photos";
 import { syncReminders } from "../lib/reminders";
 import type { RootStackParamList } from "../navigation/types";
 import { cartTotal } from "../sales/types";

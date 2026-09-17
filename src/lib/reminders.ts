@@ -3,6 +3,8 @@ import { Platform } from "react-native";
 import { REMINDER_HOUR, DEBT_DEADLINE_DAYS } from "../config/tunables";
 import { deadlineFor } from "../debts/rules";
 import { listEmptiesDebts, listMoneyDebts } from "../db/queries/debts";
+import { listOpenBatches } from "../db/queries/refilling";
+import { refillNudgeCopy, refillNudges } from "../refilling/reminders";
 import { formatDate } from "./formatDate";
 import { formatMoney } from "./formatMoney";
 
@@ -25,6 +27,10 @@ Notifications.setNotificationHandler({
   }),
 });
 
+// The Android channel ID stays "debt-reminders" even though refill nudges now
+// share it: the ID is what the OS keys a user's own notification settings to,
+// so renaming it would silently discard any preference she had already set.
+// The label she actually SEES is the `name` below.
 const CHANNEL = "debt-reminders";
 
 /**
@@ -42,7 +48,7 @@ export async function ensureNotificationPermission(): Promise<boolean> {
   }
   if (granted && Platform.OS === "android") {
     await Notifications.setNotificationChannelAsync(CHANNEL, {
-      name: "Debt reminders",
+      name: "Reminders",
       importance: Notifications.AndroidImportance.DEFAULT,
       // No vibration pattern or light: these arrive at 09:00 as a calm nudge,
       // not an alarm. The app's whole tone is informational, never alarming.
@@ -91,9 +97,10 @@ export async function syncReminders(businessId: string): Promise<void> {
   await Notifications.cancelAllScheduledNotificationsAsync();
 
   const now = new Date();
-  const [money, empties] = await Promise.all([
+  const [money, empties, openBatches] = await Promise.all([
     listMoneyDebts(businessId),
     listEmptiesDebts(businessId),
+    listOpenBatches(businessId),
   ]);
 
   const jobs: Promise<unknown>[] = [];
@@ -158,6 +165,31 @@ export async function syncReminders(businessId: string): Promise<void> {
     }
   }
 
+  // Refill batches (spec Part C §4 §8). `listOpenBatches` only returns batches
+  // that still have cylinders out, so the resync rule does the work here too:
+  // a batch that came back fully simply is not in the list any more, and a
+  // partially returned one is — with a smaller `totalOut`, at the SAME dates.
+  // That is exactly the specced behaviour: a partial return neither cancels
+  // nor resets the nudge.
+  for (const batch of openBatches) {
+    for (const nudge of refillNudges(batch.sentAt, now)) {
+      const copy = refillNudgeCopy({
+        kind: nudge.kind,
+        companyName: batch.companyName,
+        batchCode: batch.batchCode,
+        stillOut: batch.totalOut,
+      });
+      jobs.push(
+        schedule({
+          title: copy.title,
+          body: copy.body,
+          date: nudge.at,
+          view: "refill",
+        })
+      );
+    }
+  }
+
   await Promise.all(jobs);
 }
 
@@ -165,7 +197,7 @@ async function schedule(input: {
   title: string;
   body: string;
   date: Date;
-  view: "money" | "empties";
+  view: "money" | "empties" | "refill";
 }): Promise<void> {
   await Notifications.scheduleNotificationAsync({
     content: {

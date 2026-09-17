@@ -39,6 +39,36 @@ export async function loadFullStockMap(
   return map;
 }
 
+// empties in hand (per brand+size) = opening-count + received + manual-add
+//                                    − sent
+// Spec Part C §4 §10. `received` is an empty coming back from a customer;
+// `sent` is a pile leaving for a refiller. Nothing here is clamped: a negative
+// means events are missing, and hiding that would turn a bookkeeping gap into
+// a silent wrong answer.
+export async function loadEmptyStockMap(
+  businessId: string
+): Promise<Map<string, number>> {
+  const db = await getDb();
+  const rows = await db.getAllAsync<{
+    brand: string;
+    size: string;
+    qty: number;
+  }>(
+    `SELECT brand, size,
+            SUM(CASE WHEN event_type = 'sent' THEN -qty ELSE qty END) AS qty
+     FROM stock_events
+     WHERE business_id = ? AND scope = 'empty'
+     GROUP BY brand, size`,
+    businessId
+  );
+
+  const map = new Map<string, number>();
+  for (const row of rows) {
+    map.set(stockKey(row.brand, row.size), row.qty);
+  }
+  return map;
+}
+
 export interface StockEventInput {
   businessId: string;
   eventType: StockEventType;

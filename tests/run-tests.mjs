@@ -23,6 +23,8 @@ const require = createRequire(import.meta.url);
 const rules = require(path.join(here, "..", ".test-build", "debts", "rules.js"));
 const ids = require(path.join(here, "..", ".test-build", "refilling", "ids.js"));
 const walk = require(path.join(here, "..", ".test-build", "sales", "walkAway.js"));
+const draft = require(path.join(here, "..", ".test-build", "refilling", "batchDraft.js"));
+const refillReminders = require(path.join(here, "..", ".test-build", "refilling", "reminders.js"));
 
 const {
   saleGoodsTotal,
@@ -261,6 +263,122 @@ check("withRestored with nothing out for edit is a no-op",
   withRestored([priced("x")], null).map((l) => l.key), ["x"]);
 check("withRestored puts a line back at index 0",
   withRestored([priced("x")], { line: priced("o"), index: 0 }).map((l) => l.key), ["o", "x"]);
+
+// ---------------------------------------------------------------------------
+// REFILLING — the send/return grid (src/refilling/batchDraft.ts)
+//
+// This is the arithmetic that decides how many cylinders left the shop and how
+// many came back. It feeds the shared stock ledger, so an error here does not
+// just look wrong on one screen — it permanently skews full stock and empties
+// in hand for every screen that derives from them.
+// ---------------------------------------------------------------------------
+const {
+  countKey,
+  countAt,
+  setCount,
+  draftLines,
+  totalCylinders,
+  brandTouched,
+  saveBlockedBecause,
+} = draft;
+
+check("an untouched cell reads zero", countAt({}, "K-Gas", "Big"), 0);
+check("setting a cell stores it under brand|size",
+  setCount({}, "K-Gas", "Big", 3), { "K-Gas|Big": 3 });
+check("setting back to zero removes the cell rather than storing a zero",
+  setCount({ "K-Gas|Big": 3 }, "K-Gas", "Big", 0), {});
+check("a negative is clamped to zero, not stored",
+  setCount({}, "K-Gas", "Big", -2), {});
+check("setCount never mutates the map it was given", (() => {
+  const before = { "K-Gas|Big": 1 };
+  setCount(before, "K-Gas", "Big", 5);
+  return before;
+})(), { "K-Gas|Big": 1 });
+
+// The cap is the whole safety of a partial return: returning more than went
+// out would drive "still out" negative and inflate full stock forever.
+check("a return is capped at what is still out",
+  setCount({}, "K-Gas", "Big", 9, 4), { "K-Gas|Big": 4 });
+check("a return at exactly the cap is allowed",
+  setCount({}, "K-Gas", "Big", 4, 4), { "K-Gas|Big": 4 });
+check("a cap of zero blocks the cell entirely",
+  setCount({}, "K-Gas", "Big", 3, 0), {});
+
+check("draft lines drop zeroes and sort by brand then size",
+  draftLines({ "Total Gas|Small": 2, "Afrigas|Big": 1, "Afrigas|Small": 0 }),
+  [
+    { brand: "Afrigas", size: "Big", qty: 1 },
+    { brand: "Total Gas", size: "Small", qty: 2 },
+  ]);
+check("the total adds every size of every brand",
+  totalCylinders({ "K-Gas|Big": 2, "K-Gas|Small": 1, "Afrigas|Big": 4 }), 7);
+check("an empty grid totals zero", totalCylinders({}), 0);
+
+check("a brand with any size set counts as touched",
+  brandTouched({ "K-Gas|Small": 1 }, "K-Gas"), true);
+check("a brand left at zero is not touched",
+  brandTouched({ "K-Gas|Big": 0 }, "K-Gas"), false);
+// A prefix match would light up "Gold Gas" when only "Gold" was set.
+check("a brand whose name prefixes another is not touched by it",
+  brandTouched({ "Gold Gas|Big": 2 }, "Gold"), false);
+check("a brand-name separator inside the key does not confuse the match",
+  brandTouched({ "K-Gas|Big": 2 }, "K-Gas"), true);
+check("countKey is the format the rest of the module assumes",
+  countKey("K-Gas", "Big"), "K-Gas|Big");
+
+// The save rule, and — just as important — the REASON, which the screen shows
+// as a line of amber text. A disabled button with no explanation is the thing
+// people tap repeatedly and then give up on.
+check("no cylinders blocks the save",
+  saveBlockedBecause({ counts: {}, cylinderPhotos: ["a.jpg"] }), "no-cylinders");
+check("no photo blocks the save",
+  saveBlockedBecause({ counts: { "K-Gas|Big": 1 }, cylinderPhotos: [] }), "no-photo");
+check("missing cylinders is reported before a missing photo",
+  saveBlockedBecause({ counts: {}, cylinderPhotos: [] }), "no-cylinders");
+check("cylinders plus a photo is allowed",
+  saveBlockedBecause({ counts: { "K-Gas|Big": 1 }, cylinderPhotos: ["a.jpg"] }), null);
+
+// ---------------------------------------------------------------------------
+// REFILLING — batch reminders (src/refilling/reminders.ts)
+// ---------------------------------------------------------------------------
+const { refillNudges, refillNudgeCopy } = refillReminders;
+
+{
+  const sent = new Date(2026, 6, 11, 16, 30); // 11 July 2026, 4:30pm
+  const justAfter = new Date(2026, 6, 11, 17, 0);
+  const nudges = refillNudges(sent, justAfter);
+
+  check("a fresh batch gets both the check and the overdue nudge",
+    nudges.map((n) => n.kind), ["check", "overdue"]);
+  check("the check lands three days later", nudges[0].at.getDate(), 14);
+  check("the overdue nudge lands seven days later", nudges[1].at.getDate(), 18);
+  // Not "72 hours to the minute" — a 4:30pm batch must not ring at 4:30pm, in
+  // the middle of the evening rush.
+  check("both fire at the reminder hour, not the hour it was sent",
+    [nudges[0].at.getHours(), nudges[1].at.getHours()], [9, 9]);
+  check("and on the minute", nudges[0].at.getMinutes(), 0);
+}
+{
+  const sent = new Date(2026, 6, 11, 16, 30);
+  const day5 = new Date(2026, 6, 16, 12, 0);
+  check("a nudge already in the past is dropped, the later one survives",
+    refillNudges(sent, day5).map((n) => n.kind), ["overdue"]);
+  const day9 = new Date(2026, 6, 20, 12, 0);
+  check("a long-overdue batch schedules nothing new",
+    refillNudges(sent, day9), []);
+}
+check("a batch sent across a month boundary rolls the date over",
+  refillNudges(new Date(2026, 6, 30, 8, 0), new Date(2026, 6, 30, 9, 0))[0].at.getMonth(),
+  7);
+check("an unreadable timestamp yields no reminders rather than throwing",
+  refillNudges("not a date"), []);
+
+check("the check nudge names the company and what is still out",
+  refillNudgeCopy({ kind: "check", companyName: "K-Gas Depot", batchCode: "KGD-11JUL26-01", stillOut: 4 }),
+  { title: "Check on K-Gas Depot", body: "4 cylinders still out on batch KGD-11JUL26-01." });
+check("one cylinder is not called cylinders",
+  refillNudgeCopy({ kind: "overdue", companyName: "Afrigas", batchCode: "AFR-01AUG26-02", stillOut: 1 }).body,
+  "Batch AFR-01AUG26-02: 1 cylinder still not back.");
 
 // ---------------------------------------------------------------------------
 if (failures.length > 0) {

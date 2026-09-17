@@ -31,4 +31,12 @@ export type RootStackParamList = {
   // The interleaved ledger (spec Part C §2 §6). One screen serving both
   // directions of both kinds of debt — `view` picks which.
   DebtsRecord: { view: "money" | "empties" };
+
+  // Refilling (spec Part C §4): company → batches → returns.
+  CreateCompany: undefined;
+  RefillCompany: { companyId: string; companyName: string };
+  SendBatch: { companyId: string; companyName: string; companyCode: string };
+  RefillBatch: { batchId: string };
+  MarkReturned: { batchId: string };
+  DeliveriesRecord: { companyId: string; companyName: string };
 };

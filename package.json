@@ -29,7 +29,7 @@
   },
   "scripts": {
     "dev": "node scripts/dev.mjs",
-    "test": "tsc src/debts/rules.ts src/refilling/ids.ts src/sales/walkAway.ts --ignoreConfig --outDir .test-build --module commonjs --target es2022 --moduleResolution bundler --skipLibCheck && node tests/run-tests.mjs",
+    "test": "tsc src/debts/rules.ts src/refilling/ids.ts src/refilling/batchDraft.ts src/refilling/reminders.ts src/sales/walkAway.ts --ignoreConfig --outDir .test-build --module commonjs --target es2022 --moduleResolution bundler --skipLibCheck && node tests/run-tests.mjs",
     "start": "expo start",
     "android": "expo start --android",
     "ios": "expo start --ios",

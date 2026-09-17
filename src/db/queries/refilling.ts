@@ -72,6 +72,39 @@ export async function listCompanies(
   }));
 }
 
+/**
+ * One company's details, including its code.
+ *
+ * The company page needs the code to build the next batch ID, and it arrives
+ * there by navigation from a list that may be stale — so it is re-read rather
+ * than passed along as a route param.
+ */
+export async function loadCompany(
+  businessId: string,
+  companyId: string
+): Promise<{
+  id: string;
+  name: string;
+  director: string;
+  phone: string;
+  code: string;
+} | null> {
+  const db = await getDb();
+  const row = await db.getFirstAsync<{
+    id: string;
+    name: string;
+    director: string;
+    phone: string;
+    code: string;
+  }>(
+    `SELECT id, name, director, phone, code FROM refill_companies
+     WHERE business_id = ? AND id = ?`,
+    businessId,
+    companyId
+  );
+  return row ?? null;
+}
+
 export async function listCompanyCodes(businessId: string): Promise<string[]> {
   const db = await getDb();
   const rows = await db.getAllAsync<{ code: string }>(
@@ -175,6 +208,48 @@ export async function listBatches(
 
   const hydrated = await hydrateBatches(db, batches);
   return openOnly ? hydrated.filter((b) => b.totalOut > 0) : hydrated;
+}
+
+/**
+ * Every batch in the shop that is not yet fully back, any company.
+ *
+ * Feeds the reminder scheduler, which rebuilds the whole schedule from current
+ * state each launch. The still-out test is done in SQL rather than by loading
+ * every batch ever sent and filtering in JS, because this runs on every app
+ * start and the closed batches are the ones that accumulate forever.
+ */
+export async function listOpenBatches(
+  businessId: string
+): Promise<RefillBatch[]> {
+  const db = await getDb();
+  const rows = await db.getAllAsync<{
+    id: string;
+    batch_code: string;
+    company_id: string;
+    company_name: string;
+    sent_at: string;
+    note: string | null;
+    staff_name: string | null;
+  }>(
+    `SELECT b.id, b.batch_code, b.company_id, c.name AS company_name,
+            b.sent_at, b.note, st.name AS staff_name
+     FROM refill_batches b
+     JOIN refill_companies c ON c.id = b.company_id
+     LEFT JOIN staff st ON st.id = b.staff_id
+     JOIN (SELECT batch_id, SUM(qty_sent) AS qty
+           FROM refill_batch_lines GROUP BY batch_id) sent
+       ON sent.batch_id = b.id
+     LEFT JOIN (SELECT r.batch_id, SUM(rl.qty_returned) AS qty
+                FROM refill_returns r
+                JOIN refill_return_lines rl ON rl.return_id = r.id
+                GROUP BY r.batch_id) ret
+       ON ret.batch_id = b.id
+     WHERE b.business_id = ? AND sent.qty > COALESCE(ret.qty, 0)
+     ORDER BY b.sent_at ASC`,
+    businessId
+  );
+  if (rows.length === 0) return [];
+  return hydrateBatches(db, rows);
 }
 
 export async function loadBatch(
@@ -526,6 +601,30 @@ export async function listDeliveries(
   limit = 30,
   offset = 0
 ): Promise<DeliveryRecord[]> {
+  return loadDeliveries(businessId, "b.company_id = ?", companyId, limit, offset);
+}
+
+/**
+ * The returns already made against ONE batch (spec §5, "Returns so far").
+ *
+ * Same rows as the deliveries record, narrowed to one batch — which is the
+ * whole reason batch IDs exist: partial returns arrive scattered over days and
+ * something has to gather them back under the pile they came from.
+ */
+export async function listBatchReturns(
+  businessId: string,
+  batchId: string
+): Promise<DeliveryRecord[]> {
+  return loadDeliveries(businessId, "r.batch_id = ?", batchId, 100, 0);
+}
+
+async function loadDeliveries(
+  businessId: string,
+  whereSql: string,
+  whereParam: string,
+  limit: number,
+  offset: number
+): Promise<DeliveryRecord[]> {
   const db = await getDb();
 
   const returns = await db.getAllAsync<{
@@ -541,11 +640,11 @@ export async function listDeliveries(
      FROM refill_returns r
      JOIN refill_batches b ON b.id = r.batch_id
      LEFT JOIN staff st ON st.id = r.staff_id
-     WHERE r.business_id = ? AND b.company_id = ?
+     WHERE r.business_id = ? AND ${whereSql}
      ORDER BY r.returned_at DESC
      LIMIT ? OFFSET ?`,
     businessId,
-    companyId,
+    whereParam,
     limit,
     offset
   );

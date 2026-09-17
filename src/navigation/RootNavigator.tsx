@@ -18,13 +18,16 @@ import { DebtsRecordScreen } from "../screens/debts/DebtsRecordScreen";
 import { DebtsScreen } from "../screens/debts/DebtsScreen";
 import { HomeScreen } from "../screens/HomeScreen";
 import { PaymentScreen } from "../screens/PaymentScreen";
+import { CreateCompanyScreen } from "../screens/refilling/CreateCompanyScreen";
+import { DeliveriesRecordScreen } from "../screens/refilling/DeliveriesRecordScreen";
+import { MarkReturnedScreen } from "../screens/refilling/MarkReturnedScreen";
+import { RefillBatchScreen } from "../screens/refilling/RefillBatchScreen";
+import { RefillCompanyScreen } from "../screens/refilling/RefillCompanyScreen";
+import { RefillingScreen } from "../screens/refilling/RefillingScreen";
+import { SendBatchScreen } from "../screens/refilling/SendBatchScreen";
 import { SalesRecordScreen } from "../screens/salesRecord/SalesRecordScreen";
 import { StaffPickerScreen } from "../screens/StaffPickerScreen";
-import {
-  RefillingScreen,
-  ReportsScreen,
-  SettingsScreen,
-} from "../screens/placeholders";
+import { ReportsScreen, SettingsScreen } from "../screens/placeholders";
 import { colors } from "../theme/colors";
 import type { RootStackParamList, TabParamList } from "./types";
 
@@ -158,7 +161,7 @@ export function RootNavigator() {
     const sub = Notifications.addNotificationResponseReceivedListener(
       (response) => {
         const view = response.notification.request.content.data?.view;
-        if (view !== "money" && view !== "empties") return;
+        if (view !== "money" && view !== "empties" && view !== "refill") return;
         // The reminder names a customer, so land on the list where that debt
         // is, rather than wherever the app happened to be left.
         navRef.navigate("Tabs");
@@ -194,6 +197,19 @@ export function RootNavigator() {
         <Stack.Screen name="Payment" component={PaymentScreen} />
         <Stack.Screen name="CustomerHistory" component={CustomerHistoryScreen} />
         <Stack.Screen name="DebtsRecord" component={DebtsRecordScreen} />
+
+        {/* Refilling drills down: company → batch → return, each its own
+            screen above the tabs so a half-counted pile can't be lost to a
+            stray tap on the bottom bar. */}
+        <Stack.Screen name="CreateCompany" component={CreateCompanyScreen} />
+        <Stack.Screen name="RefillCompany" component={RefillCompanyScreen} />
+        <Stack.Screen name="SendBatch" component={SendBatchScreen} />
+        <Stack.Screen name="RefillBatch" component={RefillBatchScreen} />
+        <Stack.Screen name="MarkReturned" component={MarkReturnedScreen} />
+        <Stack.Screen
+          name="DeliveriesRecord"
+          component={DeliveriesRecordScreen}
+        />
       </Stack.Navigator>
     </NavigationContainer>
   );

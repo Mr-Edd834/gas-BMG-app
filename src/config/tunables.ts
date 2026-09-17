@@ -30,6 +30,14 @@ export const DEBT_DEADLINE_DAYS = 7;
 // which a debt starts showing an amber dot.
 export const DUE_SOON_DAYS = 2;
 
+// Refill batch reminders, spec Part C §4 §8: a "check on these" nudge three
+// days after a batch is sent, then an overdue nudge at seven. Unlike a debt
+// deadline these are not a promise anyone made — no refiller agreed to three
+// days — they are just when it is worth asking. That is why they live here as
+// tunables rather than in the reminder code as constants.
+export const REFILL_CHECK_DAYS = 3;
+export const REFILL_OVERDUE_DAYS = 7;
+
 // Reminder time of day, spec Part C §2 §8: "a fixed set time each day —
 // default 09:00", chosen as a calm morning slot before the day's rush.
 // Settings will later let her change the hour; the day-6/day-7 schedule logic
