@@ -13,7 +13,6 @@ import {
 import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
 import { BarChart, type Bar } from "../../components/charts/BarChart";
 import { ProportionBar } from "../../components/charts/ProportionBar";
-import { QuadrantChart, type Point } from "../../components/charts/QuadrantChart";
 import { LoadError } from "../../components/LoadError";
 import {
   PRODUCT_RANK_LIMIT,
@@ -44,6 +43,7 @@ import type { RootStackParamList } from "../../navigation/types";
 import {
   bucketsFor,
   busiestDays,
+  concentrationOf,
   creditReliance,
   creditTakenWithin,
   isWithin,
@@ -53,6 +53,7 @@ import {
   rankProducts,
   relianceSeverity,
   settleSpeed,
+  shareOf,
   type Direction,
   type Metric,
   type Range,
@@ -87,6 +88,40 @@ const SEVERITY_TONES = {
   watch: colors.amber,
   high: colors.overpaid,
 } as const;
+
+// A plain reading of where a customer sits, in the words someone would
+// actually use. This replaced a scatter plot: the chart held exactly these
+// four facts, but asked the reader to decode two axes and tap each dot to
+// find out whose it was — which is the report handing its job back.
+//
+// Still strictly descriptive (spec §5 §1). "Takes a lot, pays slowly" states
+// what the records show. It never says stop giving them credit; that judgement
+// is hers, and an app that only partly models her business has no standing to
+// make it.
+const VERDICTS: Record<string, { phrase: string; tone: string }> = {
+  "risky-big": { phrase: "takes a lot · pays slowly", tone: colors.overpaid },
+  "reliable-big": { phrase: "takes a lot · pays quickly", tone: colors.green },
+  "risky-small": { phrase: "takes a little · pays slowly", tone: colors.amber },
+  "reliable-small": {
+    phrase: "takes a little · pays quickly",
+    tone: colors.green,
+  },
+  unknown: { phrase: "still on their first debt", tone: colors.muted },
+};
+
+/** Turns the concentration figure into the sentence it is worth. */
+function describeConcentration({
+  customers,
+  share,
+}: {
+  customers: number;
+  share: number;
+}): string {
+  if (customers === 1) {
+    return `${Math.round(share)}% of it went to one person.`;
+  }
+  return `About ${Math.round(share)}% of it went to just ${customers} people.`;
+}
 
 interface Loaded {
   sales: ReportSale[];
@@ -242,41 +277,41 @@ export function ReportsScreen() {
       })
       .slice(0, TOP_DEBTORS_LIMIT);
 
-    // BORROWING vs REPAYMENT — the two facts plotted together, because
-    // neither alone identifies the customers that matter. Only customers with
-    // a settled debt can be placed: settle speed is measured on finished
-    // debts, so someone still on their first is counted separately rather
-    // than guessed at.
-    const plottable = data.payers
-      .map((payer) => {
-        const speed = settleSpeed(payer.debts);
-        const taken = payer.debts.reduce((sum, d) => sum + d.principal, 0);
-        return { payer, speed, taken };
-      })
-      .filter((p) => p.speed.avgDays !== null && p.taken > 0);
+    // ONE card, not two. "Who borrows most" and "how fast do they pay" were
+    // ranking the same people from the same rows, and split across two cards
+    // the reader had to recombine them by hand, one customer at a time. Each
+    // customer now carries both facts and a plain-English reading of them,
+    // because a report that hands back raw numbers has made the reader do the
+    // reporting.
+    const totalCredit = borrowers.reduce((sum, b) => sum + b.amount, 0);
+    const allTakenAmounts = data.payers.map((p) =>
+      creditTakenWithin(p.debts, bounds).amount
+    );
+    const concentration = concentrationOf(allTakenAmounts);
 
-    const creditThreshold = medianOf(plottable.map((p) => p.taken));
-    const scatter: Point[] = plottable.map(({ payer, speed, taken }) => {
-      const quadrant = quadrantOf(
-        { credit: taken, avgDays: speed.avgDays as number },
-        { credit: creditThreshold, days: SLOW_PAYER_DAYS }
+    // The dividing line for "a lot" is the median of what customers actually
+    // borrow, so it adapts to her shop instead of to a number I invented.
+    const creditThreshold = medianOf(allTakenAmounts.filter((a) => a > 0));
+
+    const creditCustomers = borrowers.map((borrower) => {
+      const payer = data.payers.find(
+        (p) => p.customerId === borrower.customerId
       );
-      return {
-        id: payer.customerId,
-        label: payer.customerName,
-        x: taken,
-        y: speed.avgDays as number,
-        tone:
-          quadrant === "risky-big"
-            ? colors.overpaid
-            : quadrant === "risky-small"
-              ? colors.amber
-              : colors.green,
-      };
+      const speed = payer
+        ? settleSpeed(payer.debts)
+        : { avgDays: null, settledCount: 0 };
+      // A customer still on their first debt has no settle speed — that is a
+      // real answer, not a zero, so they get their own phrase rather than
+      // being sorted in as if they paid instantly.
+      const quadrant =
+        speed.avgDays === null
+          ? null
+          : quadrantOf(
+              { credit: borrower.amount, avgDays: speed.avgDays },
+              { credit: creditThreshold, days: SLOW_PAYER_DAYS }
+            );
+      return { ...borrower, ...speed, quadrant };
     });
-    const unplaced = data.payers.filter(
-      (p) => p.debts.length > 0 && settleSpeed(p.debts).avgDays === null
-    ).length;
 
     // EMPTIES TURNAROUND — the same measure as settle speed, for the other
     // half of what this app tracks. Empties are half the reason the paper
@@ -310,10 +345,9 @@ export function ReportsScreen() {
       outstandingMoney,
       reliance,
       buckets,
-      borrowers,
-      scatter,
-      creditThreshold,
-      unplaced,
+      creditCustomers,
+      totalCredit,
+      concentration,
       emptiesSpeed,
       payers,
       ranked: rankProducts(data.products, {
@@ -454,67 +488,93 @@ export function ReportsScreen() {
 
         <Card>
           <CardTitle
-            title="Leans on credit most"
-            sub={`Credit taken ${active.phrase} — not what they owe now`}
+            title="Who your credit goes to"
+            sub={`How much each person took ${active.phrase}, and how they pay it back`}
           />
-          {view.borrowers.length === 0 ? (
+
+          {view.creditCustomers.length === 0 ? (
             <Text style={styles.quiet}>
               Nothing was taken on credit {active.phrase}.
             </Text>
           ) : (
-            view.borrowers.map((borrower) => (
-              <Pressable
-                key={borrower.customerId}
-                accessibilityRole="button"
-                accessibilityLabel={`${borrower.customerName}, took ${formatMoney(borrower.amount)} on credit`}
-                onPress={() =>
-                  navigation.navigate("CustomerHistory", {
-                    customerId: borrower.customerId,
-                    customerName: borrower.customerName,
-                  })
-                }
-                style={({ pressed }) => [styles.row, pressed && styles.pressed]}
-              >
-                <Text style={styles.rowName} numberOfLines={1}>
-                  {borrower.customerName}
-                </Text>
-                <Text style={styles.rowMeta}>
-                  {borrower.count}×
-                </Text>
-                <Text style={styles.rowAmount}>
-                  {formatMoney(borrower.amount)}
-                </Text>
-                <Ionicons name="chevron-forward" size={15} color={colors.muted} />
-              </Pressable>
-            ))
-          )}
-        </Card>
+            <>
+              {/* The finding, in a sentence, before any numbers. A column of
+                  five amounts is five amounts the reader still has to add up;
+                  "half of it went to two people" is the thing they were going
+                  to work out for themselves. */}
+              <Text style={styles.finding}>
+                You gave out{" "}
+                <Text style={styles.findingStrong}>
+                  {formatMoney(view.totalCredit)}
+                </Text>{" "}
+                on credit {active.phrase}.
+                {view.concentration
+                  ? ` ${describeConcentration(view.concentration)}`
+                  : ""}
+              </Text>
 
-        <Card>
-          <CardTitle
-            title="Borrowing against repayment"
-            sub="How much they take, against how long they take to clear it"
-          />
-          <QuadrantChart
-            points={view.scatter}
-            xThreshold={view.creditThreshold}
-            yThreshold={SLOW_PAYER_DAYS}
-            xAxisLabel="Credit taken, all time"
-            yAxisLabel="Days to clear"
-            formatX={formatMoney}
-            formatY={(v) => `${Math.round(v)} days`}
-            cornerLabel="takes a lot, pays slowly"
-          />
-          {view.unplaced > 0 && (
-            // Named rather than silently dropped: a customer mid-way through
-            // their first debt has no settle time yet, and leaving them out
-            // without saying so would make the chart look complete when it
-            // is not.
-            <Text style={styles.quiet}>
-              {view.unplaced} {view.unplaced === 1 ? "customer has" : "customers have"}{" "}
-              not settled a debt yet, so {view.unplaced === 1 ? "they are" : "they are"}{" "}
-              not on the chart.
-            </Text>
+              {view.creditCustomers.map((customer) => {
+                const verdict = VERDICTS[customer.quadrant ?? "unknown"];
+                const share = shareOf(customer.amount, view.totalCredit);
+                return (
+                  <Pressable
+                    key={customer.customerId}
+                    accessibilityRole="button"
+                    accessibilityLabel={`${customer.customerName}: ${verdict.phrase}. ${formatMoney(customer.amount)} on credit, ${Math.round(share)} percent of the total.`}
+                    onPress={() =>
+                      navigation.navigate("CustomerHistory", {
+                        customerId: customer.customerId,
+                        customerName: customer.customerName,
+                      })
+                    }
+                    style={({ pressed }) => [
+                      styles.creditRow,
+                      { borderLeftColor: verdict.tone },
+                      pressed && styles.pressed,
+                    ]}
+                  >
+                    <View style={styles.creditTop}>
+                      <Text style={styles.rowName} numberOfLines={1}>
+                        {customer.customerName}
+                      </Text>
+                      <Text style={[styles.verdict, { color: verdict.tone }]}>
+                        {verdict.phrase}
+                      </Text>
+                    </View>
+
+                    {/* Each person's slice of the credit, said in words and
+                        shown as a length. The share is the interpreted number;
+                        the shilling amount alone means nothing without the
+                        total beside it. */}
+                    <Text style={styles.creditLine}>
+                      {formatMoney(customer.amount)} over {customer.count}{" "}
+                      {customer.count === 1 ? "sale" : "sales"} ·{" "}
+                      <Text style={styles.findingStrong}>
+                        {Math.round(share)}%
+                      </Text>{" "}
+                      of your credit
+                    </Text>
+                    <View style={styles.shareTrack}>
+                      <View
+                        style={[
+                          styles.shareFill,
+                          {
+                            width: `${Math.max(2, share)}%`,
+                            backgroundColor: verdict.tone,
+                          },
+                        ]}
+                      />
+                    </View>
+
+                    <Text style={styles.creditLine}>
+                      {customer.avgDays === null
+                        ? "Has not finished paying off a debt yet"
+                        : `Clears a debt in about ${Math.round(customer.avgDays)} ${Math.round(customer.avgDays) === 1 ? "day" : "days"}, going on ${customer.settledCount} settled`}
+                    </Text>
+                  </Pressable>
+                );
+              })}
+            </>
           )}
         </Card>
 
@@ -869,6 +929,32 @@ const styles = StyleSheet.create({
   },
   rowName: { flex: 1, fontSize: 15, color: colors.ink },
   rowMeta: { fontSize: 12, color: colors.mutedLight },
+  // The finding, stated before any figures.
+  finding: { fontSize: 14, lineHeight: 21, color: colors.ink },
+  findingStrong: { fontWeight: "800" },
+  creditRow: {
+    borderLeftWidth: 4,
+    borderRadius: 8,
+    backgroundColor: colors.surfaceSoft,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    gap: 5,
+  },
+  creditTop: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+    flexWrap: "wrap",
+  },
+  verdict: { fontSize: 11, fontWeight: "800" },
+  creditLine: { fontSize: 12, lineHeight: 17, color: colors.muted },
+  shareTrack: {
+    height: 5,
+    borderRadius: 3,
+    backgroundColor: colors.neutral,
+    overflow: "hidden",
+  },
+  shareFill: { height: "100%", borderRadius: 3 },
   rowAmount: { fontSize: 15, fontWeight: "700", color: colors.ink },
   payer: {
     gap: 4,

@@ -637,6 +637,22 @@ check("one huge borrower does not drag the median the way a mean would",
     quadrantOf({ credit: 5000, avgDays: 14 }, thresholds), "risky-big");
 }
 
+// Concentration turns a ranked list into a finding: "half of it went to two
+// people" is what the reader was going to work out for themselves anyway.
+{
+  const { concentrationOf } = kpis;
+  check("one dominant borrower is named as one person",
+    concentrationOf([8000, 1000, 500, 500]), { customers: 1, share: 80 });
+  check("an even spread needs half the customers to reach half the credit",
+    concentrationOf([1000, 1000, 1000, 1000]), { customers: 2, share: 50 });
+  check("the share reported is the real running total, not a rounded 50",
+    concentrationOf([600, 300, 100]), { customers: 1, share: 60 });
+  check("no credit given out has no concentration to report",
+    concentrationOf([]), null);
+  check("zeroes are ignored rather than counted as customers",
+    concentrationOf([0, 0, 900, 100]), { customers: 1, share: 90 });
+}
+
 // Empties reuse the money arithmetic wholesale, so the rule that matters —
 // measured to the return that CLEARS the line, not the first one — is
 // inherited rather than reimplemented.

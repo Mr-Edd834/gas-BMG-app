@@ -389,6 +389,33 @@ export function medianOf(values: number[]): number {
     : (sorted[middle - 1] + sorted[middle]) / 2;
 }
 
+/**
+ * How concentrated the shop's credit is: the fewest customers who together
+ * account for at least half of it.
+ *
+ * One number that turns a ranked list into a finding. "You gave out 32,000 on
+ * credit and half of it went to two people" is a fact about the business;
+ * a column of five amounts is a column of five amounts that the reader has to
+ * add up before it says anything.
+ */
+export function concentrationOf(
+  amounts: number[]
+): { customers: number; share: number } | null {
+  const positive = amounts.filter((a) => a > 0);
+  const total = positive.reduce((sum, a) => sum + a, 0);
+  if (total <= 0) return null;
+
+  const sorted = [...positive].sort((a, b) => b - a);
+  let running = 0;
+  for (let i = 0; i < sorted.length; i++) {
+    running += sorted[i];
+    if (running >= total / 2) {
+      return { customers: i + 1, share: (running / total) * 100 };
+    }
+  }
+  return { customers: sorted.length, share: 100 };
+}
+
 export type Quadrant =
   | "reliable-big"
   | "risky-big"
