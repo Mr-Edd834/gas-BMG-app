@@ -212,8 +212,20 @@ the failures land on him in the morning.
 ## Working conventions for this project
 
 - Git repo initialized during Expo scaffolding (2026-08-23). Built so far:
-  Home/Sales, Debts (incl. the record and reminders), Sales Record, Refilling.
-  Still placeholders: Reports, Settings.
+  Home/Sales, Debts (incl. the record and reminders), Sales Record, Refilling,
+  Reports. Still a placeholder: Settings.
+- **Where Reports lives:** `src/reports/kpis.ts` (pure KPI arithmetic, heavily
+  tested), `src/db/queries/reports.ts` (read-only SELECTs — Reports never
+  writes), `src/components/charts/*`, `src/screens/reports/ReportsScreen.tsx`.
+  **Chart library decision (resolved 2026-09-19, closes a spec OPEN item):**
+  NO charting library. Both candidates (gifted-charts, victory-native) pull in
+  a native module, which forces a fresh build on every phone before the app
+  will launch at all. Charts are plain Views. Revisit only if curves,
+  animation or pie slices are actually wanted.
+- **SQL is verified by running it**, not by reading it — see the `node:sqlite`
+  harnesses used for the refilling record and Reports queries. That caught a
+  `GROUP BY` resolving to a real column instead of the intended alias. Node 22
+  ships `node:sqlite`, so this needs no dependency.
 - **Where Refilling lives:** `src/db/queries/refilling.ts` (data),
   `src/refilling/*` (pure: `ids.ts` company/batch codes, `batchDraft.ts` the
   send/return grid, `reminders.ts` day-3/day-7 timing),
