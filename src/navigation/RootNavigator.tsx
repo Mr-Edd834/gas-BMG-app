@@ -27,7 +27,8 @@ import { RefillingScreen } from "../screens/refilling/RefillingScreen";
 import { SendBatchScreen } from "../screens/refilling/SendBatchScreen";
 import { SalesRecordScreen } from "../screens/salesRecord/SalesRecordScreen";
 import { StaffPickerScreen } from "../screens/StaffPickerScreen";
-import { ReportsScreen, SettingsScreen } from "../screens/placeholders";
+import { ReportsScreen } from "../screens/reports/ReportsScreen";
+import { SettingsScreen } from "../screens/placeholders";
 import { colors } from "../theme/colors";
 import type { RootStackParamList, TabParamList } from "./types";
 

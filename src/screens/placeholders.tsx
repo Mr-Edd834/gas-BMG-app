@@ -8,16 +8,6 @@ import { PlaceholderScreen } from "./PlaceholderScreen";
 // Record is in ./salesRecord/SalesRecordScreen, and Refilling is in
 // ./refilling/RefillingScreen.
 
-export function ReportsScreen() {
-  return (
-    <PlaceholderScreen
-      title="Reports"
-      buildOrder={5}
-      summary="KPIs computed at read time from the sales and stock history."
-    />
-  );
-}
-
 export function SettingsScreen() {
   return (
     <PlaceholderScreen

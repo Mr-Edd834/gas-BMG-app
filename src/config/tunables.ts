@@ -30,6 +30,14 @@ export const DEBT_DEADLINE_DAYS = 7;
 // which a debt starts showing an amber dot.
 export const DUE_SOON_DAYS = 2;
 
+// Reports, spec Part C §5 §7 (all three explicitly flagged tunable there).
+// SLOW_PAYER_DAYS is the average days-to-clear at which a customer's settle
+// speed is worth noticing. It describes a habit, and it never advises: the
+// screen flags the number, it does not suggest refusing anyone credit.
+export const SLOW_PAYER_DAYS = 14;
+export const TOP_DEBTORS_LIMIT = 5;
+export const PRODUCT_RANK_LIMIT = 5;
+
 // Refill batch reminders, spec Part C §4 §8: a "check on these" nudge three
 // days after a batch is sent, then an overdue nudge at seven. Unlike a debt
 // deadline these are not a promise anyone made — no refiller agreed to three
