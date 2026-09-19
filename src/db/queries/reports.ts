@@ -271,3 +271,90 @@ export async function loadPayerHistories(
 
   return [...byCustomer.values()];
 }
+
+export interface EmptiesHistory {
+  customerId: string;
+  customerName: string;
+  // Deliberately the same shape as a money debt, so `daysToClear` and
+  // `settleSpeed` work on it unchanged. An empty owed and a shilling owed
+  // behave identically in time: taken on a date, given back in instalments,
+  // finished when the balance reaches zero. Reusing the arithmetic means
+  // empties turnaround inherits the one rule that matters — measured to the
+  // return that CLEARS the line, not to the first one — instead of a second
+  // implementation drifting away from it.
+  cylinders: DebtHistory[];
+}
+
+/**
+ * How long customers take to bring empties back.
+ *
+ * The mirror of settle speed for the other half of what this app tracks.
+ * Empties are half the reason the paper notebook failed, and until now they
+ * had no presence in Reports at all.
+ *
+ * `principal` is what was still owed after the sale-time handover: a customer
+ * who brings two empties while buying two full cylinders owes nothing and
+ * never enters this measure.
+ */
+export async function loadEmptiesHistories(
+  businessId: string
+): Promise<EmptiesHistory[]> {
+  const db = await getDb();
+
+  const items = await db.getAllAsync<{
+    id: string;
+    customer_id: string;
+    customer_name: string;
+    qty: number;
+    empties_returned: number | null;
+    sold_at: string;
+  }>(
+    `SELECT si.id, s.customer_id, c.name AS customer_name,
+            si.qty, si.empties_returned, s.sold_at
+     FROM sale_items si
+     JOIN sales s ON s.id = si.sale_id
+     JOIN customers c ON c.id = s.customer_id
+     WHERE si.business_id = ? AND si.commodity_type = 'cylinder'
+     ORDER BY s.sold_at ASC`,
+    businessId
+  );
+  if (items.length === 0) return [];
+
+  const returns = await db.getAllAsync<{
+    sale_item_id: string;
+    qty: number;
+    returned_at: string;
+  }>(
+    `SELECT sale_item_id, qty, returned_at FROM empty_returns
+     WHERE business_id = ?
+     ORDER BY returned_at ASC`,
+    businessId
+  );
+
+  const returnsByItem = new Map<string, { at: string; amount: number }[]>();
+  for (const r of returns) {
+    const list = returnsByItem.get(r.sale_item_id) ?? [];
+    list.push({ at: r.returned_at, amount: r.qty });
+    returnsByItem.set(r.sale_item_id, list);
+  }
+
+  const byCustomer = new Map<string, EmptiesHistory>();
+  for (const item of items) {
+    const owed = Math.max(0, item.qty - (item.empties_returned ?? 0));
+    if (owed <= 0) continue;
+
+    const entry = byCustomer.get(item.customer_id) ?? {
+      customerId: item.customer_id,
+      customerName: item.customer_name,
+      cylinders: [],
+    };
+    entry.cylinders.push({
+      takenAt: item.sold_at,
+      principal: owed,
+      repayments: returnsByItem.get(item.id) ?? [],
+    });
+    byCustomer.set(item.customer_id, entry);
+  }
+
+  return [...byCustomer.values()];
+}

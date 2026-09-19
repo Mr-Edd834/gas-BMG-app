@@ -587,6 +587,74 @@ check("days are counted by the calendar, not by elapsed hours",
 check("a share is a percentage of the whole", shareOf(25, 200), 12.5);
 check("a share of nothing is zero, not a division by zero", shareOf(0, 0), 0);
 
+// --- Borrowing volume, and the borrowing-vs-repayment chart ---------------
+const { creditTakenWithin, medianOf, quadrantOf } = kpis;
+
+{
+  const debts = [
+    { takenAt: new Date(2026, 8, 14).toISOString(), principal: 2000, repayments: [] },
+    { takenAt: new Date(2026, 8, 16).toISOString(), principal: 500, repayments: [] },
+    { takenAt: new Date(2026, 7, 20).toISOString(), principal: 9000, repayments: [] },
+  ];
+  check("credit taken sums only debts inside the window",
+    creditTakenWithin(debts, rangeBounds("week", WED)), { amount: 2500, count: 2 });
+  check("last month's borrowing is not counted in this week",
+    creditTakenWithin(debts, rangeBounds("today", WED)), { amount: 500, count: 1 });
+  check("a window with no borrowing is zero of zero",
+    creditTakenWithin([], rangeBounds("week", WED)), { amount: 0, count: 0 });
+
+  // The measure is about credit TAKEN, so a debt already repaid still counts.
+  // That is the whole point: a customer who borrows big every month and always
+  // clears it never appears in the Debts tab, yet is the largest exposure.
+  const repaid = [{
+    takenAt: new Date(2026, 8, 15).toISOString(),
+    principal: 30000,
+    repayments: [{ at: new Date(2026, 8, 16).toISOString(), amount: 30000 }],
+  }];
+  check("a fully repaid debt still counts as credit taken",
+    creditTakenWithin(repaid, rangeBounds("week", WED)).amount, 30000);
+}
+
+check("the median of an odd list is the middle value", medianOf([1, 9, 5]), 5);
+check("the median of an even list is the midpoint of the middle two", medianOf([2, 4, 6, 8]), 5);
+check("the median of nothing is zero", medianOf([]), 0);
+// A mean here would sit above almost every real customer and leave the
+// "borrows a lot" half of the chart containing only the one outlier.
+check("one huge borrower does not drag the median the way a mean would",
+  medianOf([100, 200, 300, 400, 100000]), 300);
+
+{
+  const thresholds = { credit: 5000, days: 14 };
+  check("big and slow is the corner that matters",
+    quadrantOf({ credit: 9000, avgDays: 30 }, thresholds), "risky-big");
+  check("big and fast is a good customer, not a risk",
+    quadrantOf({ credit: 9000, avgDays: 3 }, thresholds), "reliable-big");
+  check("small and slow is an irritation, not an exposure",
+    quadrantOf({ credit: 100, avgDays: 30 }, thresholds), "risky-small");
+  check("small and fast is fine",
+    quadrantOf({ credit: 100, avgDays: 3 }, thresholds), "reliable-small");
+  check("sitting exactly on both thresholds counts as big and slow",
+    quadrantOf({ credit: 5000, avgDays: 14 }, thresholds), "risky-big");
+}
+
+// Empties reuse the money arithmetic wholesale, so the rule that matters —
+// measured to the return that CLEARS the line, not the first one — is
+// inherited rather than reimplemented.
+{
+  const cylinders = [{
+    takenAt: new Date(2026, 8, 1).toISOString(),
+    principal: 3,
+    repayments: [
+      { at: new Date(2026, 8, 2).toISOString(), amount: 1 },
+      { at: new Date(2026, 8, 12).toISOString(), amount: 2 },
+    ],
+  }];
+  check("empties turnaround measures to the return that clears the line",
+    daysToClear(cylinders[0]), 11);
+  check("and settle speed works on empties unchanged",
+    settleSpeed(cylinders), { avgDays: 11, settledCount: 1 });
+}
+
 // ---------------------------------------------------------------------------
 if (failures.length > 0) {
   console.log(`\n${failures.length} FAILED:\n`);

@@ -13,6 +13,7 @@ import {
 import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
 import { BarChart, type Bar } from "../../components/charts/BarChart";
 import { ProportionBar } from "../../components/charts/ProportionBar";
+import { QuadrantChart, type Point } from "../../components/charts/QuadrantChart";
 import { LoadError } from "../../components/LoadError";
 import {
   PRODUCT_RANK_LIMIT,
@@ -28,10 +29,12 @@ import {
 } from "../../db/queries/debts";
 import {
   loadDebtByCommodity,
+  loadEmptiesHistories,
   loadPayerHistories,
   loadProductTotals,
   loadSaleTotalsSince,
   type CommodityDebt,
+  type EmptiesHistory,
   type PayerHistory,
   type ProductTotalRow,
   type ReportSale,
@@ -42,7 +45,10 @@ import {
   bucketsFor,
   busiestDays,
   creditReliance,
+  creditTakenWithin,
   isWithin,
+  medianOf,
+  quadrantOf,
   rangeBounds,
   rankProducts,
   relianceSeverity,
@@ -89,6 +95,7 @@ interface Loaded {
   emptiesOwed: number;
   commodityDebt: CommodityDebt[];
   payers: PayerHistory[];
+  empties: EmptiesHistory[];
   catalogLabels: string[];
 }
 
@@ -142,8 +149,9 @@ export function ReportsScreen() {
         loadDebtByCommodity(businessId),
         loadPayerHistories(businessId),
         loadCatalog(businessId),
+        loadEmptiesHistories(businessId),
       ])
-        .then(([sales, products, money, empties, commodityDebt, payers, catalog]) => {
+        .then(([sales, products, money, empties, commodityDebt, payers, catalog, emptiesHistory]) => {
           if (cancelled) return;
           setData({
             sales,
@@ -152,6 +160,7 @@ export function ReportsScreen() {
             emptiesOwed: empties.reduce((sum, c) => sum + c.totalOutstanding, 0),
             commodityDebt,
             payers,
+            empties: emptiesHistory,
             // Zero-fills the slow-mover list, so stock that shifted nothing at
             // all can appear — it generates no sale rows and is otherwise
             // invisible precisely because it did not sell.
@@ -190,14 +199,25 @@ export function ReportsScreen() {
       0
     );
 
-    const debtors = data.money
-      .slice()
-      .sort((a, b) => b.totalOutstanding - a.totalOutstanding)
-      .slice(0, TOP_DEBTORS_LIMIT);
-
     const standingByCustomer = new Map(
       data.money.map((c) => [c.customerId, c])
     );
+
+    // WHO LEANS ON CREDIT MOST — replaces a "top debtors by current balance"
+    // list, which was answering the Debts tab's question in a screen that
+    // cannot act on it. What someone owes today is a collections task; how
+    // heavily they buy on credit is a pattern, and a customer who takes large
+    // credit every month and always clears it never shows up in Debts at all
+    // while being the biggest credit exposure in the business.
+    const borrowers = data.payers
+      .map((payer) => ({
+        customerId: payer.customerId,
+        customerName: payer.customerName,
+        ...creditTakenWithin(payer.debts, bounds),
+      }))
+      .filter((b) => b.amount > 0)
+      .sort((a, b) => b.amount - a.amount)
+      .slice(0, TOP_DEBTORS_LIMIT);
 
     const payers = data.payers
       .map((payer) => {
@@ -222,12 +242,79 @@ export function ReportsScreen() {
       })
       .slice(0, TOP_DEBTORS_LIMIT);
 
+    // BORROWING vs REPAYMENT — the two facts plotted together, because
+    // neither alone identifies the customers that matter. Only customers with
+    // a settled debt can be placed: settle speed is measured on finished
+    // debts, so someone still on their first is counted separately rather
+    // than guessed at.
+    const plottable = data.payers
+      .map((payer) => {
+        const speed = settleSpeed(payer.debts);
+        const taken = payer.debts.reduce((sum, d) => sum + d.principal, 0);
+        return { payer, speed, taken };
+      })
+      .filter((p) => p.speed.avgDays !== null && p.taken > 0);
+
+    const creditThreshold = medianOf(plottable.map((p) => p.taken));
+    const scatter: Point[] = plottable.map(({ payer, speed, taken }) => {
+      const quadrant = quadrantOf(
+        { credit: taken, avgDays: speed.avgDays as number },
+        { credit: creditThreshold, days: SLOW_PAYER_DAYS }
+      );
+      return {
+        id: payer.customerId,
+        label: payer.customerName,
+        x: taken,
+        y: speed.avgDays as number,
+        tone:
+          quadrant === "risky-big"
+            ? colors.overpaid
+            : quadrant === "risky-small"
+              ? colors.amber
+              : colors.green,
+      };
+    });
+    const unplaced = data.payers.filter(
+      (p) => p.debts.length > 0 && settleSpeed(p.debts).avgDays === null
+    ).length;
+
+    // EMPTIES TURNAROUND — the same measure as settle speed, for the other
+    // half of what this app tracks. Empties are half the reason the paper
+    // notebook failed and had no presence in Reports at all until now.
+    const emptiesSpeed = data.empties
+      .map((customer) => ({
+        customerId: customer.customerId,
+        customerName: customer.customerName,
+        ...settleSpeed(customer.cylinders),
+        stillOut: customer.cylinders.reduce(
+          (sum, c) =>
+            sum +
+            Math.max(
+              0,
+              c.principal - c.repayments.reduce((s, r) => s + r.amount, 0)
+            ),
+          0
+        ),
+      }))
+      .filter((c) => c.settledCount > 0 || c.stillOut > 0)
+      .sort((a, b) => {
+        if (a.avgDays === null && b.avgDays === null) return b.stillOut - a.stillOut;
+        if (a.avgDays === null) return 1;
+        if (b.avgDays === null) return -1;
+        return b.avgDays - a.avgDays;
+      })
+      .slice(0, TOP_DEBTORS_LIMIT);
+
     return {
       revenue,
       outstandingMoney,
       reliance,
       buckets,
-      debtors,
+      borrowers,
+      scatter,
+      creditThreshold,
+      unplaced,
+      emptiesSpeed,
       payers,
       ranked: rankProducts(data.products, {
         metric,
@@ -366,35 +453,68 @@ export function ReportsScreen() {
         </Card>
 
         <Card>
-          <CardTitle title="Top debtors" sub="Owed right now · all time" />
-          {view.debtors.length === 0 ? (
-            <Text style={styles.quiet}>Nobody owes you money right now.</Text>
+          <CardTitle
+            title="Leans on credit most"
+            sub={`Credit taken ${active.phrase} — not what they owe now`}
+          />
+          {view.borrowers.length === 0 ? (
+            <Text style={styles.quiet}>
+              Nothing was taken on credit {active.phrase}.
+            </Text>
           ) : (
-            view.debtors.map((debtor) => (
+            view.borrowers.map((borrower) => (
               <Pressable
-                key={debtor.customerId}
+                key={borrower.customerId}
                 accessibilityRole="button"
-                accessibilityLabel={`${debtor.customerName}, owes ${formatMoney(debtor.totalOutstanding)}`}
+                accessibilityLabel={`${borrower.customerName}, took ${formatMoney(borrower.amount)} on credit`}
                 onPress={() =>
                   navigation.navigate("CustomerHistory", {
-                    customerId: debtor.customerId,
-                    customerName: debtor.customerName,
+                    customerId: borrower.customerId,
+                    customerName: borrower.customerName,
                   })
                 }
                 style={({ pressed }) => [styles.row, pressed && styles.pressed]}
               >
                 <Text style={styles.rowName} numberOfLines={1}>
-                  {debtor.customerName}
+                  {borrower.customerName}
                 </Text>
-                {debtor.urgency === "overdue" && (
-                  <Text style={styles.overdueTag}>overdue</Text>
-                )}
+                <Text style={styles.rowMeta}>
+                  {borrower.count}×
+                </Text>
                 <Text style={styles.rowAmount}>
-                  {formatMoney(debtor.totalOutstanding)}
+                  {formatMoney(borrower.amount)}
                 </Text>
                 <Ionicons name="chevron-forward" size={15} color={colors.muted} />
               </Pressable>
             ))
+          )}
+        </Card>
+
+        <Card>
+          <CardTitle
+            title="Borrowing against repayment"
+            sub="How much they take, against how long they take to clear it"
+          />
+          <QuadrantChart
+            points={view.scatter}
+            xThreshold={view.creditThreshold}
+            yThreshold={SLOW_PAYER_DAYS}
+            xAxisLabel="Credit taken, all time"
+            yAxisLabel="Days to clear"
+            formatX={formatMoney}
+            formatY={(v) => `${Math.round(v)} days`}
+            cornerLabel="takes a lot, pays slowly"
+          />
+          {view.unplaced > 0 && (
+            // Named rather than silently dropped: a customer mid-way through
+            // their first debt has no settle time yet, and leaving them out
+            // without saying so would make the chart look complete when it
+            // is not.
+            <Text style={styles.quiet}>
+              {view.unplaced} {view.unplaced === 1 ? "customer has" : "customers have"}{" "}
+              not settled a debt yet, so {view.unplaced === 1 ? "they are" : "they are"}{" "}
+              not on the chart.
+            </Text>
           )}
         </Card>
 
@@ -453,6 +573,71 @@ export function ReportsScreen() {
                     ? ` · from ${payer.settledCount} settled`
                     : ""}
                   {` · ${payer.purchases} ${payer.purchases === 1 ? "purchase" : "purchases"}`}
+                </Text>
+              </View>
+            ))
+          )}
+        </Card>
+
+        <Card>
+          <CardTitle
+            title="Empties turnaround"
+            sub="How long cylinders take to come back"
+          />
+          {view.emptiesSpeed.length === 0 ? (
+            <Text style={styles.quiet}>
+              No cylinder history yet — this fills in as empties come back.
+            </Text>
+          ) : (
+            view.emptiesSpeed.map((customer) => (
+              <View key={customer.customerId} style={styles.payer}>
+                <View style={styles.payerTop}>
+                  <Text style={styles.rowName} numberOfLines={1}>
+                    {customer.customerName}
+                  </Text>
+                  <View
+                    style={[
+                      styles.pill,
+                      {
+                        backgroundColor:
+                          customer.stillOut > 0 ? colors.amberBg : colors.greenBg,
+                      },
+                    ]}
+                  >
+                    <Text
+                      style={[
+                        styles.pillText,
+                        {
+                          color:
+                            customer.stillOut > 0 ? colors.amber : colors.green,
+                        },
+                      ]}
+                    >
+                      {customer.stillOut > 0
+                        ? `${customer.stillOut} still out`
+                        : "all back"}
+                    </Text>
+                  </View>
+                </View>
+                <Text style={styles.payerMeta}>
+                  {customer.avgDays === null ? (
+                    <Text style={styles.noHistory}>
+                      Nothing fully returned yet
+                    </Text>
+                  ) : (
+                    <Text
+                      style={
+                        customer.avgDays >= SLOW_PAYER_DAYS
+                          ? styles.slow
+                          : undefined
+                      }
+                    >
+                      Usually {Math.round(customer.avgDays)} days to bring back
+                    </Text>
+                  )}
+                  {customer.settledCount > 0
+                    ? ` · from ${customer.settledCount} returned`
+                    : ""}
                 </Text>
               </View>
             ))
@@ -683,14 +868,8 @@ const styles = StyleSheet.create({
     paddingTop: 8,
   },
   rowName: { flex: 1, fontSize: 15, color: colors.ink },
+  rowMeta: { fontSize: 12, color: colors.mutedLight },
   rowAmount: { fontSize: 15, fontWeight: "700", color: colors.ink },
-  overdueTag: {
-    fontSize: 10,
-    fontWeight: "800",
-    letterSpacing: 0.5,
-    color: colors.overpaid,
-    textTransform: "uppercase",
-  },
   payer: {
     gap: 4,
     borderTopWidth: 1,

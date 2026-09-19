@@ -114,8 +114,37 @@ const reps = db.prepare(sqlStartingWith("SELECT sale_id, amount, paid_at FROM re
 check("both repayments load, oldest first", reps.map((r) => r.amount), [700, 800]);
 
 console.log(`\n${pass} passed, ${fails.length} failed`);
-// exit moved to end
 
-console.log("\nDEBUG products:", JSON.stringify(products, null, 1));
-console.log("DEBUG range:", d(1,0), "->", d(16,23));
-console.log("DEBUG all items:", JSON.stringify(db.prepare("SELECT i.id,i.commodity_type,i.brand_or_supplier,i.size_or_denomination,i.qty,i.unit_price,s.sold_at FROM sale_items i JOIN sales s ON s.id=i.sale_id").all(), null, 1));
+
+// --- Empties turnaround ---------------------------------------------------
+// c1 buys 3 cylinders and hands 1 empty over at the till, so owes 2. One comes
+// back on the 5th, the last on the 12th.
+sale("s4", "c1", d(1), 6000, [
+  { type: "cylinder", label: "K-Gas Big", brand: "K-Gas", size: "Big", qty: 3, price: 2000 },
+]);
+db.prepare("UPDATE sale_items SET empties_returned = 1 WHERE sale_id = 's4'").run();
+for (const [id, qty, at] of [["e1", 1, d(5)], ["e2", 1, d(12)]]) {
+  db.prepare(
+    `INSERT INTO empty_returns (id, business_id, sale_item_id, customer_id, staff_id, qty, returned_at, created_at, updated_at)
+     VALUES (?,?,(SELECT id FROM sale_items WHERE sale_id='s4'),?,?,?,?,?,?)`
+  ).run(id, B, "c1", "st1", qty, at, at, at);
+}
+
+console.log("\nloadEmptiesHistories:");
+const emptyItems = db.prepare(sqlStartingWith("SELECT si.id, s.customer_id, c.name AS customer_name,")).all(B);
+const s4Item = emptyItems.find((r) => r.qty === 3);
+check("empties owed is what was taken minus what came back at the till",
+  s4Item.qty - (s4Item.empties_returned ?? 0), 2);
+check("only cylinder lines are considered", emptyItems.every((r) => r.qty > 0), true);
+
+const emptyReturns = db.prepare(sqlStartingWith("SELECT sale_item_id, qty, returned_at FROM empty_returns")).all(B);
+check("both returns load, oldest first", emptyReturns.map((r) => r.returned_at.slice(8, 10)), ["05", "12"]);
+
+// The point of reusing DebtHistory: turnaround is measured to the return that
+// CLEARS the line, so this is 11 days, not the 4 the first return would give.
+const gap = (a, b) => Math.round((new Date(b.slice(0,10)) - new Date(a.slice(0,10))) / 86400000);
+check("turnaround runs to the clearing return, not the first",
+  gap(d(1), emptyReturns[1].returned_at), 11);
+
+console.log(`\n${pass} passed, ${fails.length} failed`);
+if (fails.length) process.exit(1);

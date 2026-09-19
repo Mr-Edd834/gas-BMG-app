@@ -343,3 +343,76 @@ export function busiestDays(sales: { at: string }[]): DayCount[] {
 export function shareOf(value: number, total: number): number {
   return total <= 0 ? 0 : (value / total) * 100;
 }
+
+// ---------------------------------------------------------------------------
+// Borrowing volume, and the borrowing-vs-repayment picture
+// ---------------------------------------------------------------------------
+
+/**
+ * How much credit one customer took within a window.
+ *
+ * This is deliberately NOT "what they owe now". A customer who takes 30,000/-
+ * on credit every month and clears it perfectly never appears in the Debts
+ * tab at all — and is still the largest credit exposure in the business. What
+ * they currently owe is a collections question and the Debts section answers
+ * it; how heavily they lean on credit is a pattern over time, which is the
+ * only kind of question Reports exists to answer.
+ */
+export function creditTakenWithin(
+  debts: DebtHistory[],
+  bounds: Bounds
+): { amount: number; count: number } {
+  let amount = 0;
+  let count = 0;
+  for (const debt of debts) {
+    if (!isWithin(debt.takenAt, bounds)) continue;
+    amount += debt.principal;
+    count += 1;
+  }
+  return { amount, count };
+}
+
+/**
+ * The middle value, used as the dividing line on the borrowing chart.
+ *
+ * A median rather than a mean, because one customer who borrows ten times more
+ * than anyone else would drag a mean above almost every real data point and
+ * leave the "borrows a lot" half of the chart containing only them. The median
+ * splits the customers she actually has, which is the comparison she is making.
+ */
+export function medianOf(values: number[]): number {
+  if (values.length === 0) return 0;
+  const sorted = [...values].sort((a, b) => a - b);
+  const middle = Math.floor(sorted.length / 2);
+  return sorted.length % 2 === 1
+    ? sorted[middle]
+    : (sorted[middle - 1] + sorted[middle]) / 2;
+}
+
+export type Quadrant =
+  | "reliable-big"
+  | "risky-big"
+  | "reliable-small"
+  | "risky-small";
+
+/**
+ * Which corner of the borrowing-vs-repayment chart a customer falls in.
+ *
+ * The whole value of plotting these two facts together is that neither one
+ * alone identifies the customers that matter. Borrowing a lot is not a
+ * problem — it is the business working. Paying slowly on a small balance is
+ * an irritation. The two at once is the actual exposure, and on a chart it is
+ * simply the top-right corner, with no score to interpret.
+ *
+ * Descriptive, never advisory (spec §1): these names describe where a point
+ * sits. The app never suggests refusing anyone credit.
+ */
+export function quadrantOf(
+  point: { credit: number; avgDays: number },
+  thresholds: { credit: number; days: number }
+): Quadrant {
+  const big = point.credit >= thresholds.credit;
+  const slow = point.avgDays >= thresholds.days;
+  if (big) return slow ? "risky-big" : "reliable-big";
+  return slow ? "risky-small" : "reliable-small";
+}
