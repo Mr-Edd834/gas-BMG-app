@@ -216,7 +216,13 @@ function Entry({
         </View>
       </Section>
 
-      <Section label="When">
+      {/* The date is labelled with WHICH event it belongs to, not just
+          "When". A returned entry carries its batch's code, and a bare date
+          beside a code that contains a different date invites exactly one
+          misreading: that this is when the cylinders left. It is not — a
+          returned row's timestamp is `returned_at`, the moment they came
+          back. The label now says so out loud. */}
+      <Section label={sent ? "When it left" : "When it came back"}>
         <Text style={styles.when}>
           {formatDate(entry.at)} · {formatTime(entry.at)}
         </Text>
@@ -225,10 +231,17 @@ function Entry({
         ) : null}
       </Section>
 
+      {/* The note gets a filled surface of its own rather than a heading and
+          bare text. It is the one free-text thing on the card — everything
+          else is a number, a date or a name — so it has to read as a quoted
+          remark, not as more body copy. Same tinted box the sale cards, the
+          per-customer statement and the batch page use, because "someone
+          wrote this by hand" should look identical everywhere in the app. */}
       {entry.note ? (
-        <Section label="Note">
+        <View style={styles.noteBox}>
+          <Text style={styles.noteLabel}>NOTE</Text>
           <Text style={styles.note}>{entry.note}</Text>
-        </Section>
+        </View>
       ) : null}
 
       <Section label="Photos">
@@ -352,6 +365,21 @@ const styles = StyleSheet.create({
   pillText: { fontSize: 13, fontWeight: "700", color: colors.ink },
   when: { fontSize: 14, fontWeight: "600", color: colors.ink },
   meta: { fontSize: 12, color: colors.mutedLight },
+  noteBox: {
+    backgroundColor: colors.surfaceSoft,
+    borderWidth: 1,
+    borderColor: colors.line,
+    borderRadius: 10,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    gap: 3,
+  },
+  noteLabel: {
+    fontSize: 10,
+    fontWeight: "700",
+    letterSpacing: 1,
+    color: colors.muted,
+  },
   note: { fontSize: 14, lineHeight: 20, color: colors.ink },
   thumbs: { flexDirection: "row", flexWrap: "wrap", gap: 10 },
   empty: {
