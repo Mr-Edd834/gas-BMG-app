@@ -25,6 +25,7 @@ const ids = require(path.join(here, "..", ".test-build", "refilling", "ids.js"))
 const walk = require(path.join(here, "..", ".test-build", "sales", "walkAway.js"));
 const draft = require(path.join(here, "..", ".test-build", "refilling", "batchDraft.js"));
 const refillReminders = require(path.join(here, "..", ".test-build", "refilling", "reminders.js"));
+const kpis = require(path.join(here, "..", ".test-build", "reports", "kpis.js"));
 
 const {
   saleGoodsTotal,
@@ -379,6 +380,212 @@ check("the check nudge names the company and what is still out",
 check("one cylinder is not called cylinders",
   refillNudgeCopy({ kind: "overdue", companyName: "Afrigas", batchCode: "AFR-01AUG26-02", stillOut: 1 }).body,
   "Batch AFR-01AUG26-02: 1 cylinder still not back.");
+
+// ---------------------------------------------------------------------------
+// REPORTS — KPI arithmetic (src/reports/kpis.ts)
+//
+// A wrong debt gets caught the day someone argues about it. A wrong KPI is
+// never argued with — it just quietly misinforms her about her own business.
+// So the definitions the spec was most careful about get the most tests here.
+// ---------------------------------------------------------------------------
+const {
+  weekdayIndex,
+  rangeBounds,
+  bucketsFor,
+  isWithin,
+  relianceSeverity,
+  creditReliance,
+  dayGap,
+  daysToClear,
+  settleSpeed,
+  rankProducts,
+  busiestDays,
+  shareOf,
+} = kpis;
+
+// Wednesday 16 September 2026, mid-afternoon.
+const WED = new Date(2026, 8, 16, 15, 0);
+
+check("Monday is weekday 0, not Sunday", weekdayIndex(new Date(2026, 8, 14)), 0);
+check("Sunday is weekday 6", weekdayIndex(new Date(2026, 8, 20)), 6);
+
+{
+  const today = rangeBounds("today", WED);
+  check("today starts at midnight", [today.start.getHours(), today.start.getDate()], [0, 16]);
+  const week = rangeBounds("week", WED);
+  check("the week starts on Monday", [week.start.getDate(), weekdayIndex(week.start)], [14, 0]);
+  const month = rangeBounds("month", WED);
+  check("the month starts on the 1st", month.start.getDate(), 1);
+}
+
+check("a sale today is inside today", isWithin(new Date(2026, 8, 16, 9, 0), rangeBounds("today", WED)), true);
+check("yesterday's sale is outside today", isWithin(new Date(2026, 8, 15, 9, 0), rangeBounds("today", WED)), false);
+check("a sale earlier this week is inside the week", isWithin(new Date(2026, 8, 14, 9, 0), rangeBounds("week", WED)), true);
+
+// Buckets stop at today. Seven buckets on a Wednesday would put four empty
+// future days into the average and read as a collapse in trade.
+check("a week viewed on Wednesday has three day buckets",
+  bucketsFor("week", WED).map((b) => b.label), ["Mon", "Tue", "Wed"]);
+check("'today' borrows the week's buckets, because one day is not a trend",
+  bucketsFor("today", WED).map((b) => b.label), ["Mon", "Tue", "Wed"]);
+check("a month viewed on the 16th has three week buckets",
+  bucketsFor("month", WED).map((b) => b.label), ["Week 1", "Week 2", "Week 3"]);
+check("no bucket runs past today",
+  bucketsFor("month", WED).every((b) => b.start <= WED), true);
+
+check("under 30% credit is low", relianceSeverity(29.9), "low");
+check("exactly 30% is watch", relianceSeverity(30), "watch");
+check("exactly 40% is high", relianceSeverity(40), "high");
+
+{
+  const sales = [
+    { at: new Date(2026, 8, 14, 10, 0).toISOString(), total: 1000, credit: 200 },
+    { at: new Date(2026, 8, 14, 12, 0).toISOString(), total: 1000, credit: 0 },
+    // Nothing at all on Tuesday.
+    { at: new Date(2026, 8, 16, 10, 0).toISOString(), total: 500, credit: 250 },
+  ];
+  const { points, average } = creditReliance(sales, bucketsFor("week", WED));
+  check("Monday's credit share is the day's credit over the day's total",
+    points[0].percent, 10);
+  // The zero-vs-blank rule: a day with no trade has no credit share at all.
+  check("a day with no sales has a null share, not 0%", points[1].percent, null);
+  check("Wednesday's share is computed from its own sales", points[2].percent, 50);
+  check("the average spans only days that traded", average, 30);
+  check("with no sales anywhere the average is null, not 0",
+    creditReliance([], bucketsFor("week", WED)).average, null);
+}
+
+check("days are counted by the calendar, not by elapsed hours",
+  dayGap(new Date(2026, 8, 14, 16, 30), new Date(2026, 8, 16, 9, 0)), 2);
+
+// The load-bearing definition: days-to-clear is measured to the payment that
+// ZEROES the debt, never to a partial along the way.
+{
+  const slowFinisher = {
+    takenAt: new Date(2026, 8, 1, 10, 0).toISOString(),
+    principal: 1000,
+    repayments: [
+      { at: new Date(2026, 8, 3, 10, 0).toISOString(), amount: 500 },
+      { at: new Date(2026, 8, 30, 10, 0).toISOString(), amount: 500 },
+    ],
+  };
+  check("a half-payment on day 2 does not make a 30-day debt look fast",
+    daysToClear(slowFinisher), 29);
+
+  check("a debt never paid off has no settle time",
+    daysToClear({
+      takenAt: new Date(2026, 8, 1).toISOString(),
+      principal: 1000,
+      repayments: [{ at: new Date(2026, 8, 3).toISOString(), amount: 400 }],
+    }), null);
+
+  check("an overpayment still settles the debt",
+    daysToClear({
+      takenAt: new Date(2026, 8, 1).toISOString(),
+      principal: 1000,
+      repayments: [{ at: new Date(2026, 8, 4).toISOString(), amount: 1200 }],
+    }), 3);
+
+  check("same-day settlement is 0 days, not null",
+    daysToClear({
+      takenAt: new Date(2026, 8, 1, 9, 0).toISOString(),
+      principal: 500,
+      repayments: [{ at: new Date(2026, 8, 1, 17, 0).toISOString(), amount: 500 }],
+    }), 0);
+
+  check("repayments recorded out of order are still read chronologically",
+    daysToClear({
+      takenAt: new Date(2026, 8, 1).toISOString(),
+      principal: 1000,
+      repayments: [
+        { at: new Date(2026, 8, 10).toISOString(), amount: 600 },
+        { at: new Date(2026, 8, 4).toISOString(), amount: 400 },
+      ],
+    }), 9);
+}
+
+{
+  const fast = {
+    takenAt: new Date(2026, 8, 1).toISOString(),
+    principal: 100,
+    repayments: [{ at: new Date(2026, 8, 3).toISOString(), amount: 100 }],
+  };
+  const slowButBig = {
+    takenAt: new Date(2026, 8, 1).toISOString(),
+    principal: 100000,
+    repayments: [{ at: new Date(2026, 8, 21).toISOString(), amount: 100000 }],
+  };
+  const open = {
+    takenAt: new Date(2026, 8, 1).toISOString(),
+    principal: 500,
+    repayments: [],
+  };
+
+  // Locked by the spec: a simple mean, each settled debt counting once. If it
+  // were weighted by amount this would come out near 20, and one big slow debt
+  // would brand an otherwise reliable customer.
+  check("the average weights every settled debt equally, not by size",
+    settleSpeed([fast, slowButBig]), { avgDays: 11, settledCount: 2 });
+  check("open debts are excluded from the average",
+    settleSpeed([fast, open]), { avgDays: 2, settledCount: 1 });
+  // The single most important null in this file.
+  check("a customer with nothing settled has no average, not an average of 0",
+    settleSpeed([open]), { avgDays: null, settledCount: 0 });
+  check("a customer with no debts at all has no average",
+    settleSpeed([]), { avgDays: null, settledCount: 0 });
+}
+
+{
+  const sold = [
+    { label: "Safaricom airtime", qty: 120, revenue: 5700 },
+    { label: "K-Gas · Big", qty: 8, revenue: 20000 },
+    { label: "K-Gas · Small", qty: 15, revenue: 12000 },
+  ];
+  // Both lenses tell different truths, which is exactly why the spec insists
+  // on the toggle: airtime wins on volume and loses badly on revenue.
+  check("best by quantity is the volume seller",
+    rankProducts(sold, { metric: "qty", direction: "best", limit: 1 }).map((p) => p.label),
+    ["Safaricom airtime"]);
+  check("best by revenue is a different product entirely",
+    rankProducts(sold, { metric: "revenue", direction: "best", limit: 1 }).map((p) => p.label),
+    ["K-Gas · Big"]);
+  check("slow movers come back worst-first",
+    rankProducts(sold, { metric: "qty", direction: "slow", limit: 2 }).map((p) => p.label),
+    ["K-Gas · Big", "K-Gas · Small"]);
+
+  // The real slowest mover sold nothing, so it generated no rows at all and
+  // is invisible unless the catalog is zero-filled back in.
+  check("stock that sold nothing outranks stock that sold a little, as slowest",
+    rankProducts(sold, {
+      metric: "qty",
+      direction: "slow",
+      limit: 1,
+      catalogLabels: ["Sea Gas · Big", "K-Gas · Big"],
+    }).map((p) => p.label),
+    ["Sea Gas · Big"]);
+  check("and zero-fill is not applied when asking for best sellers",
+    rankProducts(sold, {
+      metric: "qty",
+      direction: "best",
+      limit: 3,
+      catalogLabels: ["Sea Gas · Big"],
+    }).length, 3);
+}
+
+{
+  const days = busiestDays([
+    { at: new Date(2026, 8, 14, 9, 0).toISOString() },
+    { at: new Date(2026, 8, 14, 17, 0).toISOString() },
+    { at: new Date(2026, 8, 20, 11, 0).toISOString() },
+  ]);
+  check("all seven days are returned, quiet ones included", days.length, 7);
+  check("the week starts on Monday", days[0], { label: "Mon", count: 2 });
+  check("Sunday lands last", days[6], { label: "Sun", count: 1 });
+  check("a day with no trade is a real zero here, not a gap", days[1].count, 0);
+}
+
+check("a share is a percentage of the whole", shareOf(25, 200), 12.5);
+check("a share of nothing is zero, not a division by zero", shareOf(0, 0), 0);
 
 // ---------------------------------------------------------------------------
 if (failures.length > 0) {
