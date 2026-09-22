@@ -212,8 +212,18 @@ the failures land on him in the morning.
 ## Working conventions for this project
 
 - Git repo initialized during Expo scaffolding (2026-08-23). Built so far:
-  Home/Sales, Debts (incl. the record and reminders), Sales Record, Refilling,
-  Reports. Still a placeholder: Settings.
+  **all six sections are built** — Home/Sales, Debts, Sales Record, Refilling,
+  Reports, Settings. No placeholder screens remain. What is left before launch
+  is in [docs/LAUNCH-CHECKLIST.md](docs/LAUNCH-CHECKLIST.md); the backend is
+  the big one.
+- **Where Settings lives:** `src/settings/openingStock.ts` (pure — opening vs
+  recount arithmetic), `src/db/queries/settings.ts` (prefs, catalog edits,
+  stock counts), `src/screens/settings/*` (seven screens).
+  **Resolved open items:** catalog removal always **soft-hides** (`active = 0`),
+  never deletes — history stores brands as text so nothing would break, but one
+  tap must never destroy something. Reminder prefs live in `device_prefs`,
+  deliberately per-device and unsynced. A recount NEVER edits the opening
+  count; it appends a signed `manual-add` for the difference only.
 - **Where Reports lives:** `src/reports/kpis.ts` (pure KPI arithmetic, heavily
   tested), `src/db/queries/reports.ts` (read-only SELECTs — Reports never
   writes), `src/components/charts/*`, `src/screens/reports/ReportsScreen.tsx`.

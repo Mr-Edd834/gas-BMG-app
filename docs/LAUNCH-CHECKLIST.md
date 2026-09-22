@@ -15,13 +15,15 @@ Items are marked:
 
 ---
 
-## 1. Finish the app
+## 1. Finish the app — **DONE (2026-09-22)**
+
+All six sections are built. No placeholder screens remain.
 
 | | Item | Notes |
 |---|---|---|
-| NEEDED | **Reports / KPIs (spec §5)** | Pure read-time computation over data already captured. No new capture, no schema change. |
-| **BLOCKER** | **Settings / Catalog (spec §6)** | Blocker because of one part: the **opening stock count**. Full stock is derived from events (G1), so with no opening count every stock figure in the app starts life wrong. The catalog editor and storage controls are only NEEDED. |
-| NEEDED | Company-code reference list in Settings | "KGD = K-Gas Depot" (Refilling spec §3/§6), so any batch ID can be decoded later. Owed to Refilling. |
+| DONE | Reports / KPIs (spec §5) | Built 2026-09-19. |
+| DONE | Settings / Catalog (spec §6) | Built 2026-09-22. The opening-stock *screen* exists — **entering the real numbers is still a blocker, in §4 below.** |
+| DONE | Company-code reference list | Settings → Refilling company codes. |
 
 ## 2. Known bugs, deliberately deferred
 
@@ -86,12 +88,18 @@ already bitten once: test data was lost switching phones, because the phone
 
 ## The short version
 
-Four things genuinely stand between here and a shop running on this app:
+The app itself is finished. Three things now stand between here and a shop
+running on it, and none of them is more code in a section:
 
-1. **Settings**, for the opening stock count.
-2. **The backend**, so the business does not live on one droppable phone.
-3. **Wipe the test data before the first sync**, in that order.
-4. **A real day in her shop, with you standing there.**
+1. **The backend**, so the business does not live on one droppable phone.
+   This is the whole of §3 and it is by far the largest remaining piece.
+2. **Wipe the test data, then connect sync — in that order.** Reversed, the
+   first push seeds the production database with fake customers, and there is
+   no in-app delete to undo it (G5).
+3. **A real day in her shop, with you standing there.** Nobody but the builder
+   has ever used this app.
 
-Reports, the statement pagination and every LATER item can follow a working
-launch. None of them can lose her data; the four above all can.
+Then the opening stock count, entered with her, on the day she starts.
+
+The statement pagination and every LATER item can follow a working launch.
+None of those can lose her data. All three above can.
