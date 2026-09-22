@@ -82,3 +82,50 @@ export async function capturePhoto(
 
 export const captureReceiptPhoto = () => capturePhoto("receipts");
 export const captureRefillPhoto = () => capturePhoto("refills");
+
+const PHOTO_DIRS = ["receipts", "refills"];
+
+export interface PhotoStorage {
+  count: number;
+  bytes: number;
+}
+
+/**
+ * How much of the phone the app's photos are using (spec Part C §6 §6).
+ *
+ * Measured, never estimated. The spec's mockup shows "212 MB" as placeholder
+ * text and this is precisely the kind of number that must not be invented:
+ * a figure she is asked to act on ("free up space") has to be the real one,
+ * or the action she takes is based on fiction.
+ *
+ * Returns zeroes rather than throwing if the directories do not exist yet —
+ * a shop that has taken no photos is a normal state, not an error.
+ */
+export async function photoStorage(): Promise<PhotoStorage> {
+  let count = 0;
+  let bytes = 0;
+
+  for (const name of PHOTO_DIRS) {
+    try {
+      const dir = new Directory(Paths.document, name);
+      if (!dir.exists) continue;
+      for (const entry of dir.list()) {
+        if (entry instanceof File) {
+          count += 1;
+          bytes += entry.size ?? 0;
+        }
+      }
+    } catch (err) {
+      // One unreadable folder must not hide the other's real total.
+      console.warn(`[photos] could not measure ${name}`, err);
+    }
+  }
+
+  return { count, bytes };
+}
+
+export function formatBytes(bytes: number): string {
+  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1024 * 1024) return `${Math.round(bytes / 1024)} KB`;
+  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+}

@@ -39,4 +39,13 @@ export type RootStackParamList = {
   RefillBatch: { batchId: string };
   MarkReturned: { batchId: string };
   DeliveriesRecord: { companyId: string; companyName: string };
+
+  // Settings (spec Part C §6): the catalog that makes the app reusable, the
+  // cold-start stock count, and the device's own preferences.
+  CatalogHub: undefined;
+  CatalogList: { kind: string; title: string; note?: string };
+  OpeningStock: undefined;
+  CompanyCodes: undefined;
+  Reminders: undefined;
+  Storage: undefined;
 };

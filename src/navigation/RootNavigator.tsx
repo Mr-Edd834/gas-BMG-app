@@ -28,7 +28,13 @@ import { SendBatchScreen } from "../screens/refilling/SendBatchScreen";
 import { SalesRecordScreen } from "../screens/salesRecord/SalesRecordScreen";
 import { StaffPickerScreen } from "../screens/StaffPickerScreen";
 import { ReportsScreen } from "../screens/reports/ReportsScreen";
-import { SettingsScreen } from "../screens/placeholders";
+import { CatalogHubScreen } from "../screens/settings/CatalogHubScreen";
+import { CatalogListScreen } from "../screens/settings/CatalogListScreen";
+import { CompanyCodesScreen } from "../screens/settings/CompanyCodesScreen";
+import { OpeningStockScreen } from "../screens/settings/OpeningStockScreen";
+import { RemindersScreen } from "../screens/settings/RemindersScreen";
+import { SettingsScreen } from "../screens/settings/SettingsScreen";
+import { StorageScreen } from "../screens/settings/StorageScreen";
 import { colors } from "../theme/colors";
 import type { RootStackParamList, TabParamList } from "./types";
 
@@ -211,6 +217,15 @@ export function RootNavigator() {
           name="DeliveriesRecord"
           component={DeliveriesRecordScreen}
         />
+
+        {/* Settings drills down the same way: hub above, one job per
+            screen below it. */}
+        <Stack.Screen name="CatalogHub" component={CatalogHubScreen} />
+        <Stack.Screen name="CatalogList" component={CatalogListScreen} />
+        <Stack.Screen name="OpeningStock" component={OpeningStockScreen} />
+        <Stack.Screen name="CompanyCodes" component={CompanyCodesScreen} />
+        <Stack.Screen name="Reminders" component={RemindersScreen} />
+        <Stack.Screen name="Storage" component={StorageScreen} />
       </Stack.Navigator>
     </NavigationContainer>
   );

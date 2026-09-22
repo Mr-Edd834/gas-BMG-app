@@ -3,6 +3,7 @@ import { Platform } from "react-native";
 import { REMINDER_HOUR, DEBT_DEADLINE_DAYS } from "../config/tunables";
 import { deadlineFor } from "../debts/rules";
 import { listEmptiesDebts, listMoneyDebts } from "../db/queries/debts";
+import { getPref } from "../db/queries/settings";
 import { listOpenBatches } from "../db/queries/refilling";
 import { refillNudgeCopy, refillNudges } from "../refilling/reminders";
 import { formatDate } from "./formatDate";
@@ -63,11 +64,30 @@ export async function ensureNotificationPermission(): Promise<boolean> {
 // The moment a reminder should fire: a fixed hour on a given day, NOT
 // "seven days to the minute from the sale" (spec §8). A debt taken at 4pm
 // should not be chased at 4pm a week later — she reads these over morning tea.
-function fireAt(base: Date, daysBefore: number): Date {
+function fireAt(base: Date, daysBefore: number, hour: number): Date {
   const at = new Date(base);
   at.setDate(at.getDate() - daysBefore);
-  at.setHours(REMINDER_HOUR, 0, 0, 0);
+  at.setHours(hour, 0, 0, 0);
   return at;
+}
+
+// Preference keys, named once so Settings and the scheduler cannot drift.
+export const REMINDERS_ENABLED_KEY = "reminders.enabled";
+export const REMINDER_HOUR_KEY = "reminders.hour";
+
+/** Reminders are ON until she says otherwise — an unset preference is not off. */
+export async function remindersEnabled(): Promise<boolean> {
+  return (await getPref(REMINDERS_ENABLED_KEY)) !== "false";
+}
+
+export async function reminderHour(): Promise<number> {
+  const raw = await getPref(REMINDER_HOUR_KEY);
+  const parsed = raw === null ? NaN : Number(raw);
+  // A corrupt or out-of-range stored value falls back to the default rather
+  // than scheduling everything for hour NaN, which silently schedules nothing.
+  return Number.isInteger(parsed) && parsed >= 0 && parsed <= 23
+    ? parsed
+    : REMINDER_HOUR;
 }
 
 /**
@@ -91,8 +111,21 @@ function fireAt(base: Date, daysBefore: number): Date {
  *     resets).
  */
 export async function syncReminders(businessId: string): Promise<void> {
+  // Settings can switch reminders off entirely, and move the hour they arrive
+  // (spec Part C §6 §5). What it deliberately cannot change is the SCHEDULE
+  // LOGIC — day-6 and day-7 for a debt, day-3 and day-7 for a batch. Those
+  // come from the debt rules, not from a preference, so a reminder can never
+  // be quietly tuned into uselessness.
+  const enabled = await remindersEnabled();
+  if (!enabled) {
+    await Notifications.cancelAllScheduledNotificationsAsync();
+    return;
+  }
+
   const granted = await ensureNotificationPermission();
   if (!granted) return;
+
+  const hour = await reminderHour();
 
   await Notifications.cancelAllScheduledNotificationsAsync();
 
@@ -109,8 +142,8 @@ export async function syncReminders(businessId: string): Promise<void> {
     for (const debt of customer.debts) {
       const due = deadlineFor(debt.soldAt);
       // Day-6 heads-up, then day-7 on the deadline itself.
-      const heads = fireAt(due, 1);
-      const onDue = fireAt(due, 0);
+      const heads = fireAt(due, 1, hour);
+      const onDue = fireAt(due, 0, hour);
 
       if (heads > now) {
         jobs.push(
@@ -138,8 +171,8 @@ export async function syncReminders(businessId: string): Promise<void> {
   for (const customer of empties) {
     for (const batch of customer.batches) {
       const due = deadlineFor(batch.soldAt);
-      const heads = fireAt(due, 1);
-      const onDue = fireAt(due, 0);
+      const heads = fireAt(due, 1, hour);
+      const onDue = fireAt(due, 0, hour);
       const what = `${batch.outstanding} ${batch.outstanding === 1 ? "empty" : "empties"}`;
 
       if (heads > now) {
@@ -172,7 +205,7 @@ export async function syncReminders(businessId: string): Promise<void> {
   // That is exactly the specced behaviour: a partial return neither cancels
   // nor resets the nudge.
   for (const batch of openBatches) {
-    for (const nudge of refillNudges(batch.sentAt, now)) {
+    for (const nudge of refillNudges(batch.sentAt, now, hour)) {
       const copy = refillNudgeCopy({
         kind: nudge.kind,
         companyName: batch.companyName,
