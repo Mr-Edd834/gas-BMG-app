@@ -672,6 +672,77 @@ check("one huge borrower does not drag the median the way a mean would",
 }
 
 // ---------------------------------------------------------------------------
+// SETTINGS — opening stock and recounts (src/settings/openingStock.ts)
+//
+// The only place in the app that writes a number nobody watched happen. Every
+// other event records a real act; an opening count is an assertion about the
+// past, and if it is wrong then every derived figure downstream is wrong with
+// it — silently, and forever.
+// ---------------------------------------------------------------------------
+const opening = require(path.join(here, "..", ".test-build", "settings", "openingStock.js"));
+const {
+  openingWrites,
+  recountAdjustments,
+  prefillFrom,
+  countedTotal,
+  filledBrandCount,
+} = opening;
+
+check("a first count writes one event per stocked line",
+  openingWrites({ "K-Gas|Big": 4, "Afrigas|Small": 2 }),
+  [
+    { brand: "Afrigas", size: "Small", qty: 2 },
+    { brand: "K-Gas", size: "Big", qty: 4 },
+  ]);
+// A brand she does not stock should leave no trace, rather than a row
+// asserting nothing that has to be read and dismissed forever after.
+check("brands left at zero write nothing at all",
+  openingWrites({ "K-Gas|Big": 0, "Sea Gas|Small": 0 }), []);
+check("counting nothing writes nothing", openingWrites({}), []);
+
+// A recount never rewrites the original count — it appends the DIFFERENCE.
+{
+  const current = new Map([["K-Gas|Big", 10], ["Afrigas|Small", 3]]);
+
+  check("finding fewer than the records claim writes a NEGATIVE adjustment",
+    recountAdjustments({ "K-Gas|Big": 7, "Afrigas|Small": 3 }, current),
+    [{ brand: "K-Gas", size: "Big", qty: -3 }]);
+
+  check("finding more writes a positive adjustment",
+    recountAdjustments({ "K-Gas|Big": 12, "Afrigas|Small": 3 }, current),
+    [{ brand: "K-Gas", size: "Big", qty: 2 }]);
+
+  // Recounting eleven brands when two were wrong should leave two events.
+  check("lines that match write nothing",
+    recountAdjustments({ "K-Gas|Big": 10, "Afrigas|Small": 3 }, current), []);
+
+  check("a brand the records have never seen is added outright",
+    recountAdjustments({ "K-Gas|Big": 10, "Afrigas|Small": 3, "Rubis|Big": 5 }, current),
+    [{ brand: "Rubis", size: "Big", qty: 5 }]);
+
+  check("a line counted down to nothing is corrected away",
+    recountAdjustments({ "K-Gas|Big": 10 }, current),
+    [{ brand: "Afrigas", size: "Small", qty: -3 }]);
+}
+
+// The dangerous default: if a recount started at zero, every brand she did not
+// bother to check would read as a genuine zero and be corrected away.
+{
+  const current = new Map([["K-Gas|Big", 10], ["Afrigas|Small", 3], ["Rubis|Big", 0]]);
+  const prefilled = prefillFrom(current);
+  check("a recount starts from what the records already say",
+    prefilled, { "K-Gas|Big": 10, "Afrigas|Small": 3 });
+  check("so a brand she does not touch is left alone, not wiped",
+    recountAdjustments(prefilled, current), []);
+}
+
+check("the running total adds every line", countedTotal({ "K-Gas|Big": 4, "K-Gas|Small": 2 }), 6);
+check("brands are counted once however many sizes they have",
+  filledBrandCount({ "K-Gas|Big": 4, "K-Gas|Small": 2, "Rubis|Big": 1 }), 2);
+check("a brand at zero is not counted as filled in",
+  filledBrandCount({ "K-Gas|Big": 0 }), 0);
+
+// ---------------------------------------------------------------------------
 if (failures.length > 0) {
   console.log(`\n${failures.length} FAILED:\n`);
   for (const f of failures) console.log(`  ✖ ${f}\n`);

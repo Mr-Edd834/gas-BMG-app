@@ -313,6 +313,21 @@ export const SCHEMA_STATEMENTS: string[] = [
     synced INTEGER NOT NULL DEFAULT 0
   );`,
   `CREATE INDEX IF NOT EXISTS idx_refill_photos_source ON refill_photos(source_type, source_id);`,
+
+  // Per-device preferences (spec Part C §6 §5): whether reminders fire, and
+  // at what hour.
+  //
+  // Deliberately NOT synced and deliberately not carrying a business_id.
+  // These describe THIS PHONE's behaviour, not the shop's records — one staff
+  // member silencing her own notifications must not silence everyone else's.
+  // Everything else in this database is a record of something that happened;
+  // this table is the only one holding a setting, which is why it is the only
+  // one that may be overwritten in place rather than appended to.
+  `CREATE TABLE IF NOT EXISTS device_prefs (
+    key TEXT PRIMARY KEY NOT NULL,
+    value TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+  );`,
 ];
 
 // Deliberately NOT created here yet — each is owned by a section spec later
