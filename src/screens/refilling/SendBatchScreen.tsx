@@ -7,8 +7,6 @@ import type { NativeStackNavigationProp } from "@react-navigation/native-stack";
 import { useEffect, useMemo, useState } from "react";
 import {
   ActivityIndicator,
-  KeyboardAvoidingView,
-  Platform,
   ScrollView,
   StyleSheet,
   Text,
@@ -16,6 +14,10 @@ import {
   View,
 } from "react-native";
 import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
+import {
+  bottomBarPadding,
+  useKeyboardInset,
+} from "../../lib/useKeyboardInset";
 import { PrimaryButton } from "../../components/Buttons";
 import { LoadError } from "../../components/LoadError";
 import { PhotoSlot } from "../../components/PhotoSlot";
@@ -62,6 +64,7 @@ export function SendBatchScreen() {
   const navigation = useNavigation<Nav>();
   const { companyId, companyName, companyCode } = useRoute<Route>().params;
   const insets = useSafeAreaInsets();
+  const keyboard = useKeyboardInset();
   const { showToast } = useToast();
 
   const [ready, setReady] = useState<Ready | null>(null);
@@ -178,10 +181,7 @@ export function SendBatchScreen() {
         onBack={() => navigation.goBack()}
       />
 
-      <KeyboardAvoidingView
-        style={styles.flex}
-        behavior={Platform.OS === "ios" ? "padding" : undefined}
-      >
+      <View style={styles.flex}>
         <ScrollView
           contentContainerStyle={styles.content}
           keyboardShouldPersistTaps="handled"
@@ -267,7 +267,7 @@ export function SendBatchScreen() {
           ) : null}
         </ScrollView>
 
-        <View style={[styles.bar, { paddingBottom: 12 + insets.bottom }]}>
+        <View style={[styles.bar, bottomBarPadding(keyboard, insets.bottom)]}>
           {blocked === "no-cylinders" && (
             <Text style={styles.blocked}>
               Set at least one cylinder before saving.
@@ -285,7 +285,7 @@ export function SendBatchScreen() {
             onPress={save}
           />
         </View>
-      </KeyboardAvoidingView>
+      </View>
     </SafeAreaView>
   );
 }

@@ -7,8 +7,6 @@ import type { NativeStackNavigationProp } from "@react-navigation/native-stack";
 import { useEffect, useMemo, useState } from "react";
 import {
   ActivityIndicator,
-  KeyboardAvoidingView,
-  Platform,
   ScrollView,
   StyleSheet,
   Text,
@@ -16,6 +14,10 @@ import {
   View,
 } from "react-native";
 import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
+import {
+  bottomBarPadding,
+  useKeyboardInset,
+} from "../../lib/useKeyboardInset";
 import { PrimaryButton } from "../../components/Buttons";
 import { LoadError } from "../../components/LoadError";
 import { PhotoSlot } from "../../components/PhotoSlot";
@@ -56,6 +58,7 @@ export function MarkReturnedScreen() {
   const navigation = useNavigation<Nav>();
   const { batchId } = useRoute<Route>().params;
   const insets = useSafeAreaInsets();
+  const keyboard = useKeyboardInset();
   const { showToast } = useToast();
 
   const [batch, setBatch] = useState<RefillBatch | null>(null);
@@ -167,10 +170,7 @@ export function MarkReturnedScreen() {
         onBack={() => navigation.goBack()}
       />
 
-      <KeyboardAvoidingView
-        style={styles.flex}
-        behavior={Platform.OS === "ios" ? "padding" : undefined}
-      >
+      <View style={styles.flex}>
         <ScrollView
           contentContainerStyle={styles.content}
           keyboardShouldPersistTaps="handled"
@@ -255,7 +255,7 @@ export function MarkReturnedScreen() {
           ) : null}
         </ScrollView>
 
-        <View style={[styles.bar, { paddingBottom: 12 + insets.bottom }]}>
+        <View style={[styles.bar, bottomBarPadding(keyboard, insets.bottom)]}>
           {blocked === "no-cylinders" && (
             <Text style={styles.blocked}>
               Set how many came back before confirming.
@@ -273,7 +273,7 @@ export function MarkReturnedScreen() {
             onPress={confirm}
           />
         </View>
-      </KeyboardAvoidingView>
+      </View>
     </SafeAreaView>
   );
 }

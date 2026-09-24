@@ -8,8 +8,6 @@ import type { NativeStackNavigationProp } from "@react-navigation/native-stack";
 import { useCallback, useEffect, useState } from "react";
 import {
   ActivityIndicator,
-  KeyboardAvoidingView,
-  Platform,
   Pressable,
   ScrollView,
   StyleSheet,
@@ -18,6 +16,10 @@ import {
   View,
 } from "react-native";
 import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
+import {
+  bottomBarPadding,
+  useKeyboardInset,
+} from "../../lib/useKeyboardInset";
 import { PrimaryButton } from "../../components/Buttons";
 import { LoadError } from "../../components/LoadError";
 import { ScreenHeader } from "../../components/ScreenHeader";
@@ -48,6 +50,7 @@ export function CatalogListScreen() {
   const navigation = useNavigation<Nav>();
   const { kind, title, note } = useRoute<Route>().params;
   const insets = useSafeAreaInsets();
+  const keyboard = useKeyboardInset();
   const { showToast } = useToast();
 
   const [entries, setEntries] = useState<CatalogEntry[] | null>(null);
@@ -154,10 +157,7 @@ export function CatalogListScreen() {
         onBack={() => navigation.goBack()}
       />
 
-      <KeyboardAvoidingView
-        style={styles.flex}
-        behavior={Platform.OS === "ios" ? "padding" : undefined}
-      >
+      <View style={styles.flex}>
         <ScrollView
           contentContainerStyle={[
             styles.content,
@@ -268,7 +268,7 @@ export function CatalogListScreen() {
           )}
         </ScrollView>
 
-        <View style={[styles.bar, { paddingBottom: 12 + insets.bottom }]}>
+        <View style={[styles.bar, bottomBarPadding(keyboard, insets.bottom)]}>
           <TextInput
             value={draft}
             onChangeText={setDraft}
@@ -287,7 +287,7 @@ export function CatalogListScreen() {
             onPress={add}
           />
         </View>
-      </KeyboardAvoidingView>
+      </View>
     </SafeAreaView>
   );
 }

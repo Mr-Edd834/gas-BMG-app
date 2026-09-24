@@ -2,8 +2,6 @@ import { useNavigation } from "@react-navigation/native";
 import type { NativeStackNavigationProp } from "@react-navigation/native-stack";
 import { useEffect, useMemo, useState } from "react";
 import {
-  KeyboardAvoidingView,
-  Platform,
   ScrollView,
   StyleSheet,
   Text,
@@ -11,6 +9,10 @@ import {
   View,
 } from "react-native";
 import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
+import {
+  bottomBarPadding,
+  useKeyboardInset,
+} from "../../lib/useKeyboardInset";
 import { PrimaryButton } from "../../components/Buttons";
 import { ScreenHeader } from "../../components/ScreenHeader";
 import { useToast } from "../../components/Toast";
@@ -34,6 +36,7 @@ export function CreateCompanyScreen() {
   const { businessId } = useReadyApp();
   const navigation = useNavigation<Nav>();
   const insets = useSafeAreaInsets();
+  const keyboard = useKeyboardInset();
   const { showToast } = useToast();
 
   const [name, setName] = useState("");
@@ -100,10 +103,7 @@ export function CreateCompanyScreen() {
         onBack={() => navigation.goBack()}
       />
 
-      <KeyboardAvoidingView
-        style={styles.flex}
-        behavior={Platform.OS === "ios" ? "padding" : undefined}
-      >
+      <View style={styles.flex}>
         <ScrollView
           contentContainerStyle={styles.content}
           keyboardShouldPersistTaps="handled"
@@ -160,7 +160,7 @@ export function CreateCompanyScreen() {
           ) : null}
         </ScrollView>
 
-        <View style={[styles.bar, { paddingBottom: 12 + insets.bottom }]}>
+        <View style={[styles.bar, bottomBarPadding(keyboard, insets.bottom)]}>
           {!complete && (
             <Text style={styles.blocked}>
               Fill in all three before creating the company.
@@ -173,7 +173,7 @@ export function CreateCompanyScreen() {
             onPress={save}
           />
         </View>
-      </KeyboardAvoidingView>
+      </View>
     </SafeAreaView>
   );
 }
