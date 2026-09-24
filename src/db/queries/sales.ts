@@ -164,6 +164,12 @@ export interface SalesFilter {
   // ISO bounds, inclusive.
   fromIso?: string;
   toIso?: string;
+  // Exactly these sales, in place of a range. Used by the per-customer
+  // statement, which decides WHICH events belong on a page by merging three
+  // tables and then needs the sales for that page — hydrated through this same
+  // path so items, photos and empties are attached identically to everywhere
+  // else (spec §5, one data source).
+  saleIds?: string[];
 }
 
 // SQL shared by every sales read in the app.
@@ -184,6 +190,17 @@ function buildWhere(f: SalesFilter): { sql: string; args: (string | number)[] } 
   if (f.customerId) {
     clauses.push("s.customer_id = ?");
     args.push(f.customerId);
+  }
+  if (f.saleIds) {
+    // An empty list must match NOTHING. `IN ()` is a syntax error in SQLite,
+    // and omitting the clause would quietly return every sale in the shop —
+    // the failure mode where a page of zero sales renders as all of them.
+    if (f.saleIds.length === 0) {
+      clauses.push("0 = 1");
+    } else {
+      clauses.push(`s.id IN (${f.saleIds.map(() => "?").join(",")})`);
+      args.push(...f.saleIds);
+    }
   }
   if (f.search && f.search.trim().length > 0) {
     clauses.push("LOWER(c.name) LIKE ?");
@@ -280,13 +297,12 @@ export async function listSales(
 // One customer's history, newest first (spec Part C §1 §6). For the pinned
 // Quick Sale tab this is simply every quick sale, because they all share that
 // one customer row.
-export async function listCustomerSales(
-  businessId: string,
-  customerId: string
-): Promise<SaleRecord[]> {
-  // Same path as the global record — see the note on buildWhere.
-  return listSales({ businessId, customerId }, 500, 0);
-}
+// listCustomerSales was removed. It took a customer's newest 500 sales for the
+// statement and said nothing on reaching that ceiling, so older history simply
+// vanished. It is gone rather than merely unused, because an exported helper
+// with a silent limit inside it is a trap for whoever reaches for it next —
+// and the fix (loadCustomerAccount, which pages properly) is the thing they
+// should find instead.
 
 // Attaches line items and later empty-returns to a page of sale rows.
 async function hydrate(

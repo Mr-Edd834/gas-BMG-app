@@ -1,6 +1,6 @@
 import { getDb } from "../client";
 import { debtPrincipal } from "../../debts/rules";
-import { listCustomerSales, type SaleRecord } from "./sales";
+import { listSales, type SaleRecord } from "./sales";
 
 // Two-directional histories: money and cylinders moving out to customers and
 // coming back. Both are DERIVED from sales, repayments and empty_returns —
@@ -58,17 +58,115 @@ export type AccountEvent =
  */
 export async function loadCustomerAccount(
   businessId: string,
-  customerId: string
-): Promise<{
-  events: AccountEvent[];
-  owedMoney: number;
-  totalRepaid: number;
-}> {
+  customerId: string,
+  limit = 40,
+  offset = 0
+): Promise<{ events: AccountEvent[] }> {
   const db = await getDb();
 
-  // Reuses the shared sales path (spec Part C §3 §5 — one data source), so
-  // items, empties and photos are already attached exactly as elsewhere.
-  const sales = await listCustomerSales(businessId, customerId);
+  // WHICH events belong on this page, decided in SQL across all three tables
+  // at once.
+  //
+  // This replaces loading the customer's newest 500 sales and merging in
+  // JavaScript. That version silently lost history: past the ceiling, older
+  // events were simply absent and nothing said so. Harmless for a named
+  // customer, fatal for the Quick Sale tab, which collects every walk-in and
+  // would reach 500 in under two months and then quietly stop showing the
+  // beginning of its own record.
+  //
+  // It has to be done in the database rather than by merging three JS arrays,
+  // for the same reason the refilling record does: page one of a JS merge is
+  // "the newest 40 sales AND the newest 40 repayments AND the newest 40
+  // returns, interleaved", so a customer with 40 sales before their first
+  // repayment could have that repayment fall outside every page. LIMIT/OFFSET
+  // has to walk the true combined sequence.
+  //
+  // The id is a tiebreak, because a sale and the repayment settling it can
+  // share a timestamp to the second, and an unstable sort under pagination
+  // shows some rows twice and skips others.
+  const page = await db.getAllAsync<{
+    id: string;
+    kind: "sale" | "repayment" | "empty-return";
+    at: string;
+  }>(
+    `SELECT ev.id, ev.kind, ev.at FROM (
+       SELECT s.id AS id, 'sale' AS kind, s.sold_at AS at
+       FROM sales s
+       WHERE s.business_id = ? AND s.customer_id = ?
+       UNION ALL
+       SELECT r.id, 'repayment', r.paid_at
+       FROM repayments r
+       WHERE r.business_id = ? AND r.customer_id = ?
+       UNION ALL
+       SELECT er.id, 'empty-return', er.returned_at
+       FROM empty_returns er
+       WHERE er.business_id = ? AND er.customer_id = ?
+     ) ev
+     ORDER BY ev.at DESC, ev.id DESC
+     LIMIT ? OFFSET ?`,
+    businessId,
+    customerId,
+    businessId,
+    customerId,
+    businessId,
+    customerId,
+    limit,
+    offset
+  );
+
+  if (page.length === 0) {
+    return { events: [] };
+  }
+
+  const saleIds = page.filter((e) => e.kind === "sale").map((e) => e.id);
+  const repaymentIds = page.filter((e) => e.kind === "repayment").map((e) => e.id);
+  const returnIds = page.filter((e) => e.kind === "empty-return").map((e) => e.id);
+
+  // Only this page's sales, still through the shared path so items, photos and
+  // empties attach exactly as they do in the global record.
+  const sales =
+    saleIds.length === 0
+      ? []
+      : await listSales({ businessId, customerId, saleIds }, saleIds.length, 0);
+
+  const repayments =
+    repaymentIds.length === 0
+      ? []
+      : await db.getAllAsync<{
+          id: string;
+          amount: number;
+          paid_at: string;
+          sale_id: string;
+          staff_name: string | null;
+        }>(
+          `SELECT r.id, r.amount, r.paid_at, r.sale_id, st.name AS staff_name
+           FROM repayments r
+           LEFT JOIN staff st ON st.id = r.staff_id
+           WHERE r.id IN (${repaymentIds.map(() => "?").join(",")})`,
+          ...repaymentIds
+        );
+
+  const returns =
+    returnIds.length === 0
+      ? []
+      : await db.getAllAsync<{
+          id: string;
+          qty: number;
+          returned_at: string;
+          sale_id: string;
+          brand: string | null;
+          size: string | null;
+          staff_name: string | null;
+        }>(
+          `SELECT er.id, er.qty, er.returned_at, si.sale_id,
+                  si.brand_or_supplier AS brand, si.size_or_denomination AS size,
+                  st.name AS staff_name
+           FROM empty_returns er
+           JOIN sale_items si ON si.id = er.sale_item_id
+           LEFT JOIN staff st ON st.id = er.staff_id
+           WHERE er.id IN (${returnIds.map(() => "?").join(",")})`,
+          ...returnIds
+        );
 
   // Description lookup, so a repayment or return can name the sale it settles.
   const describe = new Map<string, { description: string; soldAt: string }>();
@@ -79,40 +177,37 @@ export async function loadCustomerAccount(
     });
   }
 
-  const repayments = await db.getAllAsync<{
-    id: string;
-    amount: number;
-    paid_at: string;
-    sale_id: string;
-    staff_name: string | null;
-  }>(
-    `SELECT r.id, r.amount, r.paid_at, r.sale_id, st.name AS staff_name
-     FROM repayments r
-     LEFT JOIN staff st ON st.id = r.staff_id
-     WHERE r.business_id = ? AND r.customer_id = ?`,
-    businessId,
-    customerId
-  );
+  // A repayment on this page usually settles a sale from an EARLIER page —
+  // that is the normal case, since a debt is taken before it is paid. Without
+  // this, every such row would read "a sale" instead of naming what was
+  // bought, which is precisely the detail that settles an argument.
+  const missing = [
+    ...new Set(
+      [...repayments.map((r) => r.sale_id), ...returns.map((r) => r.sale_id)]
+    ),
+  ].filter((id) => !describe.has(id));
 
-  const returns = await db.getAllAsync<{
-    id: string;
-    qty: number;
-    returned_at: string;
-    sale_id: string;
-    brand: string | null;
-    size: string | null;
-    staff_name: string | null;
-  }>(
-    `SELECT er.id, er.qty, er.returned_at, si.sale_id,
-            si.brand_or_supplier AS brand, si.size_or_denomination AS size,
-            st.name AS staff_name
-     FROM empty_returns er
-     JOIN sale_items si ON si.id = er.sale_item_id
-     LEFT JOIN staff st ON st.id = er.staff_id
-     WHERE er.business_id = ? AND er.customer_id = ?`,
-    businessId,
-    customerId
-  );
+  if (missing.length > 0) {
+    const refs = await db.getAllAsync<{
+      id: string;
+      sold_at: string;
+      description: string;
+    }>(
+      `SELECT s.id, s.sold_at,
+              COALESCE(GROUP_CONCAT(i.label || ' x' || i.qty, ', '), '') AS description
+       FROM sales s
+       LEFT JOIN sale_items i ON i.sale_id = s.id
+       WHERE s.id IN (${missing.map(() => "?").join(",")})
+       GROUP BY s.id`,
+      ...missing
+    );
+    for (const ref of refs) {
+      describe.set(ref.id, {
+        description: ref.description,
+        soldAt: ref.sold_at,
+      });
+    }
+  }
 
   const events: AccountEvent[] = [];
 
@@ -165,14 +260,15 @@ export async function loadCustomerAccount(
   // chronologically — one of the reasons that format was chosen.
   events.sort((a, b) => b.at.localeCompare(a.at));
 
-  const owedMoney = events.reduce((sum, e) => {
-    if (e.kind === "sale") return sum + e.credit;
-    if (e.kind === "repayment") return sum - e.amount;
-    return sum;
-  }, 0);
-  const totalRepaid = repayments.reduce((s, r) => s + r.amount, 0);
-
-  return { events, owedMoney: Math.max(0, owedMoney), totalRepaid };
+  // Deliberately no running "owed" or "repaid so far" total.
+  //
+  // It used to return both, summed over every event it had loaded. Now that
+  // this is one page, that sum would describe the page rather than the
+  // customer — and a balance that silently means "of what has scrolled into
+  // view" is worse than no balance at all. Edd had the summary removed from
+  // this screen anyway; Debts is where a balance belongs, computed over
+  // everything.
+  return { events };
 }
 
 // ---------------------------------------------------------------------------

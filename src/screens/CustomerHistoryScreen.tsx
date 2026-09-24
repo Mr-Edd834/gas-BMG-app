@@ -17,6 +17,11 @@ import { cardRadius } from "../theme/layout";
 
 type Props = NativeStackScreenProps<RootStackParamList, "CustomerHistory">;
 
+// Events per page. Big enough that a normal customer's whole account arrives
+// in one read, small enough that the Quick Sale tab — which collects every
+// walk-in the shop ever makes — stays instant after years of trading.
+const PAGE = 40;
+
 // ONE CUSTOMER'S STATEMENT — everything that has passed between the shop and
 // this person, newest first.
 //
@@ -40,6 +45,8 @@ export function CustomerHistoryScreen({ route, navigation }: Props) {
   const { customerId, customerName } = route.params;
 
   const [events, setEvents] = useState<AccountEvent[] | null>(null);
+  const [loadingMore, setLoadingMore] = useState(false);
+  const [exhausted, setExhausted] = useState(false);
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [noteError, setNoteError] = useState<string | null>(null);
@@ -50,10 +57,12 @@ export function CustomerHistoryScreen({ route, navigation }: Props) {
   useFocusEffect(
     useCallback(() => {
       let cancelled = false;
-      loadCustomerAccount(businessId, customerId)
+      setExhausted(false);
+      loadCustomerAccount(businessId, customerId, PAGE, 0)
         .then((account) => {
           if (cancelled) return;
           setEvents(account.events);
+          setExhausted(account.events.length < PAGE);
           setLoadError(null);
         })
         .catch((err) => {
@@ -68,6 +77,27 @@ export function CustomerHistoryScreen({ route, navigation }: Props) {
       };
     }, [businessId, customerId, attempt])
   );
+
+  // Older history arrives as she scrolls. Nothing is ever hidden behind a
+  // ceiling — the page simply has not been asked for yet.
+  const loadMore = useCallback(async () => {
+    if (loadingMore || exhausted || events === null) return;
+    setLoadingMore(true);
+    try {
+      const next = await loadCustomerAccount(
+        businessId,
+        customerId,
+        PAGE,
+        events.length
+      );
+      setEvents((prev) => (prev ? [...prev, ...next.events] : next.events));
+      if (next.events.length < PAGE) setExhausted(true);
+    } catch (err) {
+      console.error("[Statement] could not load more", err);
+    } finally {
+      setLoadingMore(false);
+    }
+  }, [loadingMore, exhausted, events, businessId, customerId]);
 
   const saveNote = useCallback(async (saleId: string, note: string) => {
     const trimmed = note.trim();
@@ -131,6 +161,13 @@ export function CustomerHistoryScreen({ route, navigation }: Props) {
       ) : (
         <FlatList
           data={events}
+          onEndReached={loadMore}
+          onEndReachedThreshold={0.4}
+          ListFooterComponent={
+            loadingMore ? (
+              <ActivityIndicator color={colors.blue} style={styles.moreSpinner} />
+            ) : null
+          }
           keyExtractor={(e) => `${e.kind}:${e.id}`}
           contentContainerStyle={[
             styles.content,
@@ -164,6 +201,7 @@ export function CustomerHistoryScreen({ route, navigation }: Props) {
 }
 
 const styles = StyleSheet.create({
+  moreSpinner: { marginVertical: 16 },
   screen: { flex: 1, backgroundColor: colors.paper },
   centered: { flex: 1, alignItems: "center", justifyContent: "center" },
   content: { padding: 20 },

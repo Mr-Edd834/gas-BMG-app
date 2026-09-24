@@ -197,17 +197,16 @@ the failures land on him in the morning.
 
 ## KNOWN BUGS — deferred on purpose, do not lose these
 
-- **A customer's statement silently truncates at 500 events.**
-  `listCustomerSales` passes `limit = 500`, so anything older simply is not
-  returned and nothing says so. Harmless for a named customer; the **Quick
-  Sale** tab collects every walk-in, so at ~10/day it hits the ceiling in under
-  two months and then quietly hides history. Same class of fault as the
-  "Fully paid" bug: silent data loss on a record.
-  **Fix:** paginate the statement the way Sales Record and the Debts record
-  already do. Needs a SQL `UNION ALL` over sales + repayments + empty_returns
-  (the pattern in `listMoneyLedger`), because the three are currently merged
-  and sorted in JS and cannot be paged per-source. ~30–40 min.
-  Deferred by Edd on 2026-09-15 to finish the remaining sections first.
+- **The 500-event statement truncation is FIXED (2026-09-24).** The statement
+  now pages with a SQL `UNION ALL` over sales + repayments + empty_returns
+  (`loadCustomerAccount`), verified by `tests/check-statement-sql.mjs`.
+  `listCustomerSales` was deleted rather than left unused, so nobody reaches
+  for a helper with a silent limit inside it.
+- **OPEN: adding a catalog item then opening add-sale can fail to read the
+  catalog.** Reported on device 2026-09-24. Two guesses at the cause were
+  wrong (statement concurrency; stale handle). Database errors now carry the
+  failing SQL into the on-screen "Technical details" panel — get that SQL
+  before theorising again.
 
 ## Working conventions for this project
 
