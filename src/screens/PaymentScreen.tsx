@@ -13,6 +13,7 @@ import {
 } from "react-native";
 import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
 import { PrimaryButton } from "../components/Buttons";
+import { ErrorNote } from "../components/ErrorNote";
 import { ScreenHeader } from "../components/ScreenHeader";
 import { useToast } from "../components/Toast";
 import { useReadyApp } from "../context/AppContext";
@@ -310,12 +311,10 @@ export function PaymentScreen({ route, navigation }: Props) {
             offline notice (G8) — offline saves succeed and say nothing. This
             means the record was not written, so it is stated plainly. */}
         {saveError !== null && (
-          <View style={styles.saveError}>
-            <Text style={styles.saveErrorTitle}>
-              This sale was NOT saved. Nothing was recorded.
-            </Text>
-            <Text style={styles.saveErrorDetail}>{saveError}</Text>
-          </View>
+          <ErrorNote
+            title="This sale was NOT saved. Nothing was recorded."
+            error={saveError}
+          />
         )}
         {/* Never gated on the reconciliation strip: the strip informs, and a
             sale that doesn't add up is hers to fix, not the app's to refuse. */}

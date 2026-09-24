@@ -1,7 +1,7 @@
 import { StyleSheet, Text, View } from "react-native";
 import { PrimaryButton } from "./Buttons";
+import { ErrorNote } from "./ErrorNote";
 import { colors } from "../theme/colors";
-import { cardRadius } from "../theme/layout";
 
 // Shown when a screen could not READ its data.
 //
@@ -16,6 +16,10 @@ import { cardRadius } from "../theme/layout";
 // normal condition and never an error (G8); local reads succeed with no
 // signal. Reaching this component means local storage itself failed, which is
 // a genuine fault worth interrupting for.
+//
+// The wording is hers, and the library's own message is folded away behind
+// "Technical details" inside ErrorNote — present for whoever fixes it, absent
+// from the screen she is standing in front of.
 export function LoadError({
   what,
   detail,
@@ -23,20 +27,18 @@ export function LoadError({
 }: {
   // What could not be loaded, in her words: "your customer tabs".
   what: string;
-  // The underlying message. Shown rather than hidden because this app is
-  // sideloaded with no crash reporting — if it breaks at the counter, this
-  // line is the only evidence anyone will ever have.
-  detail?: string | null;
+  detail?: unknown;
   onRetry?: () => void;
 }) {
   return (
     <View style={styles.wrap}>
-      <Text style={styles.title}>Could not open {what}</Text>
-      <Text style={styles.body}>
-        Nothing is lost — this is a problem reading the records on this phone,
-        not a problem with the records themselves.
+      <ErrorNote title={`Could not open ${what}`} error={detail} />
+
+      <Text style={styles.reassure}>
+        This is a problem reading the records on this phone — not a problem
+        with the records themselves.
       </Text>
-      {detail ? <Text style={styles.detail}>{detail}</Text> : null}
+
       {onRetry ? (
         <View style={styles.action}>
           <PrimaryButton label="Try again" tone="ink" onPress={onRetry} />
@@ -47,31 +49,12 @@ export function LoadError({
 }
 
 const styles = StyleSheet.create({
-  wrap: {
-    backgroundColor: colors.amberBg,
-    borderColor: colors.amber,
-    borderWidth: 1,
-    borderRadius: cardRadius,
-    padding: 16,
-    marginTop: 24,
-    gap: 6,
-  },
-  title: {
-    fontSize: 15,
-    fontWeight: "700",
-    color: colors.amber,
-  },
-  body: {
+  wrap: { marginTop: 24, gap: 10 },
+  reassure: {
     fontSize: 13,
-    lineHeight: 18,
-    color: colors.ink,
+    lineHeight: 19,
+    color: colors.muted,
+    paddingHorizontal: 2,
   },
-  detail: {
-    fontSize: 12,
-    lineHeight: 16,
-    color: colors.mutedLight,
-  },
-  action: {
-    marginTop: 6,
-  },
+  action: { marginTop: 2 },
 });

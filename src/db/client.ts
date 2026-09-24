@@ -83,17 +83,49 @@ function enqueue<T>(run: () => Promise<T>): Promise<T> {
   return task;
 }
 
+/**
+ * A database failure, carrying the statement that caused it.
+ *
+ * Without this, a failure reported from a phone is a bare library message with
+ * no way to tell WHICH of the app's ~40 queries produced it — which is exactly
+ * the position two wrong guesses came from. The SQL travels with the error to
+ * the "Technical details" panel, so the next report names the culprit.
+ */
+export class DbError extends Error {
+  readonly sql: string;
+  readonly params: unknown[];
+
+  constructor(sql: string, params: unknown[], cause: unknown) {
+    const original = cause instanceof Error ? cause.message : String(cause);
+    super(`${original}\n\nwhile running:\n${sql.trim()}`);
+    this.name = "DbError";
+    this.sql = sql;
+    this.params = params;
+    this.cause = cause;
+  }
+}
+
 /** Runs an operation, reopening the database once if the handle went stale. */
 async function withRetry<T>(
+  label: string,
+  params: unknown[],
   op: (db: SQLite.SQLiteDatabase) => Promise<T>
 ): Promise<T> {
   try {
     return await op(await rawDb());
   } catch (err) {
-    if (!isStaleHandle(err)) throw err;
-    console.warn("[db] handle went stale — reopening", err);
-    dbPromise = null;
-    return op(await rawDb());
+    if (isStaleHandle(err)) {
+      console.warn("[db] handle went stale — reopening", err);
+      dbPromise = null;
+      try {
+        return await op(await rawDb());
+      } catch (retryErr) {
+        console.error("[db] FAILED after reopening:", label, params, retryErr);
+        throw new DbError(label, params, retryErr);
+      }
+    }
+    console.error("[db] statement FAILED:", label, params, err);
+    throw new DbError(label, params, err);
   }
 }
 
@@ -112,20 +144,26 @@ export interface Db {
 
 const db: Db = {
   getAllAsync: <T,>(source: string, ...params: Bind[]) =>
-    enqueue(() => withRetry((d) => d.getAllAsync<T>(source, ...params))),
+    enqueue(() =>
+      withRetry(source, params, (d) => d.getAllAsync<T>(source, ...params))
+    ),
 
   getFirstAsync: <T,>(source: string, ...params: Bind[]) =>
-    enqueue(() => withRetry((d) => d.getFirstAsync<T>(source, ...params))),
+    enqueue(() =>
+      withRetry(source, params, (d) => d.getFirstAsync<T>(source, ...params))
+    ),
 
   runAsync: (source: string, ...params: Bind[]) =>
-    enqueue(() => withRetry((d) => d.runAsync(source, ...params))),
+    enqueue(() =>
+      withRetry(source, params, (d) => d.runAsync(source, ...params))
+    ),
 
   execAsync: (source: string) =>
-    enqueue(() => withRetry((d) => d.execAsync(source))),
+    enqueue(() => withRetry("(schema)", [], (d) => d.execAsync(source))),
 
   withTransactionAsync: (task: () => Promise<void>) =>
     enqueue(() =>
-      withRetry(async (d) => {
+      withRetry("(transaction)", [], async (d) => {
         inTransaction = true;
         try {
           await d.withTransactionAsync(task);

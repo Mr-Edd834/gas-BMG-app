@@ -19,6 +19,7 @@ import {
   useKeyboardInset,
 } from "../../lib/useKeyboardInset";
 import { PrimaryButton } from "../../components/Buttons";
+import { ErrorNote } from "../../components/ErrorNote";
 import { LoadError } from "../../components/LoadError";
 import { PhotoSlot } from "../../components/PhotoSlot";
 import { ScreenHeader } from "../../components/ScreenHeader";
@@ -261,9 +262,10 @@ export function SendBatchScreen() {
           </View>
 
           {saveError ? (
-            <Text style={styles.error}>
-              Could not save this batch: {saveError}
-            </Text>
+            <ErrorNote
+              title={`Could not save this batch`}
+              error={saveError}
+            />
           ) : null}
         </ScrollView>
 

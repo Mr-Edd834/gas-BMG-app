@@ -12,6 +12,7 @@ import { SafeAreaView } from "react-native-safe-area-context";
 import { PrimaryButton } from "../components/Buttons";
 import { useApp } from "../context/AppContext";
 import { addStaff, listStaff } from "../db/queries/identity";
+import { describeError } from "../lib/errors";
 import { colors } from "../theme/colors";
 import { cardRadius, touchTarget } from "../theme/layout";
 import type { Staff } from "../types/db";
@@ -58,7 +59,7 @@ export function StaffPickerScreen() {
         setRoster([]);
         setAddingNew(true);
         setSaveError(
-          `Could not read the staff list: ${err instanceof Error ? err.message : String(err)}`
+          `Could not read the staff list. ${describeError(err).friendly}`
         );
       });
     return () => {
@@ -89,7 +90,7 @@ export function StaffPickerScreen() {
     } catch (err) {
       console.error("[StaffPicker] could not save the name", err);
       setSaveError(
-        `Could not save that name: ${err instanceof Error ? err.message : String(err)}`
+        `Could not save that name. ${describeError(err).friendly}`
       );
       setSaving(false);
     }

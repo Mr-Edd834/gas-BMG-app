@@ -4,6 +4,7 @@ import { useCallback, useState } from "react";
 import { ActivityIndicator, FlatList, StyleSheet, Text, View } from "react-native";
 import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
 import { LoadError } from "../components/LoadError";
+import { describeError } from "../lib/errors";
 import { SaleHistoryCard } from "../components/SaleHistoryCard";
 import { ScreenHeader } from "../components/ScreenHeader";
 import { StatementEvent } from "../components/StatementEvent";
@@ -100,7 +101,7 @@ export function CustomerHistoryScreen({ route, navigation }: Props) {
             )
       );
       setNoteError(
-        `That note was not saved: ${err instanceof Error ? err.message : String(err)}`
+        `That note was not saved. ${describeError(err).friendly}`
       );
     }
   }, []);

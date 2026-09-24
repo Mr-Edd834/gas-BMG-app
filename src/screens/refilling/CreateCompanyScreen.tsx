@@ -14,6 +14,7 @@ import {
   useKeyboardInset,
 } from "../../lib/useKeyboardInset";
 import { PrimaryButton } from "../../components/Buttons";
+import { ErrorNote } from "../../components/ErrorNote";
 import { ScreenHeader } from "../../components/ScreenHeader";
 import { useToast } from "../../components/Toast";
 import { useReadyApp } from "../../context/AppContext";
@@ -154,9 +155,10 @@ export function CreateCompanyScreen() {
           />
 
           {saveError ? (
-            <Text style={styles.error}>
-              Could not save this company: {saveError}
-            </Text>
+            <ErrorNote
+              title={`Could not save this company`}
+              error={saveError}
+            />
           ) : null}
         </ScrollView>
 

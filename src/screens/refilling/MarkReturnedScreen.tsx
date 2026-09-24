@@ -19,6 +19,7 @@ import {
   useKeyboardInset,
 } from "../../lib/useKeyboardInset";
 import { PrimaryButton } from "../../components/Buttons";
+import { ErrorNote } from "../../components/ErrorNote";
 import { LoadError } from "../../components/LoadError";
 import { PhotoSlot } from "../../components/PhotoSlot";
 import { ScreenHeader } from "../../components/ScreenHeader";
@@ -249,9 +250,10 @@ export function MarkReturnedScreen() {
           </View>
 
           {saveError ? (
-            <Text style={styles.error}>
-              Could not save this delivery: {saveError}
-            </Text>
+            <ErrorNote
+              title={`Could not save this delivery`}
+              error={saveError}
+            />
           ) : null}
         </ScrollView>
 
