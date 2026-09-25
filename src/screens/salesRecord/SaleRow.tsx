@@ -187,17 +187,21 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     backgroundColor: colors.neutral,
   },
+  // The one deliberately alarming control in the app. Everything else is
+  // amber at worst, because owing money is normal and never an error. This is
+  // different: it cancels a record. Red says think first — and it is behind
+  // the ⋯, so nothing about it is reached by accident.
   fix: {
     alignSelf: "flex-start",
     minHeight: 36,
     justifyContent: "center",
     paddingHorizontal: 12,
     borderRadius: 8,
-    backgroundColor: colors.neutral,
+    backgroundColor: colors.overpaidBg,
     borderWidth: 1,
-    borderColor: colors.line,
+    borderColor: colors.overpaid,
   },
-  fixLabel: { fontSize: 12, fontWeight: "700", color: colors.ink },
+  fixLabel: { fontSize: 12, fontWeight: "800", color: colors.overpaid },
   pressed: { opacity: 0.6 },
   card: {
     backgroundColor: colors.white,

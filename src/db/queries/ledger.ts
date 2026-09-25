@@ -66,6 +66,19 @@ export async function loadCustomerAccount(
 ): Promise<{ events: AccountEvent[] }> {
   const db = await getDb();
 
+  // A cancelled sale is left out of the statement entirely — Edd's call, and
+  // the right one: the Sales Record is where the crossed-out original is kept
+  // for evidence, and a customer's own page is the one she hands across a
+  // counter. Two versions of the same purchase on it would invite the exact
+  // argument the page exists to end.
+  //
+  // It is filtered HERE, in the page query, rather than being dropped after
+  // the rows come back. Dropping it later looked identical on screen and hid a
+  // real fault: a page asking for 40 events that renders 37 makes the screen
+  // read "fewer than a full page" as "that is the end of the history", so it
+  // stops loading older entries. The same silent truncation this statement was
+  // rewritten to get rid of.
+  //
   // WHICH events belong on this page, decided in SQL across all three tables
   // at once.
   //
@@ -95,6 +108,7 @@ export async function loadCustomerAccount(
        SELECT s.id AS id, 'sale' AS kind, s.sold_at AS at
        FROM sales s
        WHERE s.business_id = ? AND s.customer_id = ?
+         AND ${liveSale("s")}
        UNION ALL
        SELECT r.id, 'repayment', r.paid_at
        FROM repayments r

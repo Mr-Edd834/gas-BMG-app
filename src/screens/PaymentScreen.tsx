@@ -3,6 +3,7 @@ import { CommonActions } from "@react-navigation/native";
 import type { NativeStackScreenProps } from "@react-navigation/native-stack";
 import { useCallback, useMemo, useState } from "react";
 import {
+  Alert,
   Image,
   Pressable,
   ScrollView,
@@ -99,6 +100,7 @@ export function PaymentScreen({ route, navigation }: Props) {
       setAttaching(false);
     }
   }, [photoPath]);
+
 
   const saveSale = useCallback(async () => {
     if (saving) return;
@@ -201,6 +203,31 @@ export function PaymentScreen({ route, navigation }: Props) {
     navigation,
     showToast,
   ]);
+
+  // A correction cancels a record, so it asks once before it happens. An
+  // ordinary sale does NOT — routine work takes zero confirmation taps
+  // (spec Part C §1), and a prompt on every sale is a prompt nobody reads
+  // by the end of the first week, including the one that mattered.
+  const confirmThenSave = useCallback(() => {
+    if (!correctingSaleId) {
+      void saveSale();
+      return;
+    }
+    Alert.alert(
+      "Save this correction?",
+      "The sale you are fixing will be cancelled and this one recorded in " +
+        "its place. The old one stays in the sales record, crossed out.",
+      [
+        { text: "Go back and check", style: "cancel" },
+        {
+          text: "Yes, save it",
+          style: "destructive",
+          onPress: () => void saveSale(),
+        },
+      ]
+    );
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [correctingSaleId, saveSale]);
 
   return (
     <SafeAreaView style={styles.screen} edges={["top", "left", "right"]}>
@@ -353,10 +380,16 @@ export function PaymentScreen({ route, navigation }: Props) {
         {/* Never gated on the reconciliation strip: the strip informs, and a
             sale that doesn't add up is hers to fix, not the app's to refuse. */}
         <PrimaryButton
-          label={saving ? "Saving…" : "Save sale"}
+          label={
+            saving
+              ? "Saving…"
+              : correctingSaleId
+                ? "Save the correction"
+                : "Save sale"
+          }
           tone="green"
           disabled={saving}
-          onPress={saveSale}
+          onPress={confirmThenSave}
         />
         <Text style={styles.attribution}>
           Logged by {staff.name} · {formatDateTime(new Date())}
