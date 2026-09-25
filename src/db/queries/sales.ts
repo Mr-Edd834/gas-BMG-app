@@ -151,6 +151,7 @@ export interface SaleRecord {
   staffName: string;
   // Present on every row, used by the global record. The per-customer history
   // ignores them — it already knows whose page it is.
+  customerId: string;
   customerName: string;
   isQuickSale: boolean;
   items: SaleItemRecord[];
@@ -296,12 +297,13 @@ export async function listSales(
     note: string | null;
     receipt_photo_local_path: string | null;
     staff_name: string | null;
+    customer_id: string;
     customer_name: string;
     is_quick_sale: 0 | 1;
   }>(
     `SELECT s.id, s.sold_at, s.cash_amount, s.credit_amount, s.note,
             s.receipt_photo_local_path, st.name AS staff_name,
-            c.name AS customer_name, c.is_quick_sale
+            s.customer_id, c.name AS customer_name, c.is_quick_sale
      ${SALES_FROM}
      WHERE ${sql}
      ORDER BY s.sold_at DESC
@@ -335,6 +337,7 @@ async function hydrate(
     note: string | null;
     receipt_photo_local_path: string | null;
     staff_name: string | null;
+    customer_id: string;
     customer_name: string;
     is_quick_sale: 0 | 1;
   }[]
@@ -406,6 +409,7 @@ async function hydrate(
     note: s.note,
     receiptPhotoLocalPath: s.receipt_photo_local_path,
     staffName: s.staff_name ?? "",
+    customerId: s.customer_id,
     customerName: s.customer_name,
     isQuickSale: s.is_quick_sale === 1,
     items: itemsBySale.get(s.id) ?? [],

@@ -1,4 +1,4 @@
-import { StyleSheet, Text, View } from "react-native";
+import { Pressable, StyleSheet, Text, View } from "react-native";
 import { PhotoViewer } from "../../components/PhotoViewer";
 import { debtPrincipal, saleGoodsTotal } from "../../debts/rules";
 import { formatDateTime } from "../../lib/formatDate";
@@ -18,14 +18,22 @@ import type { SaleRecord } from "../../db/queries/sales";
 //
 // Read-only, unlike the per-customer history: a sale's note is editable there
 // and nowhere else (spec §1, §5).
-export function SaleRow({ sale }: { sale: SaleRecord }) {
+export function SaleRow({
+  sale,
+  onFix,
+}: {
+  sale: SaleRecord;
+  // Absent on screens where correcting makes no sense.
+  onFix?: (sale: SaleRecord) => void;
+}) {
+  const cancelled = sale.cancelledBy !== null;
   const total = saleGoodsTotal(sale.items);
   // Derived, like everywhere else — never read from the stored credit column.
   const owed = debtPrincipal(sale.items, sale.cashAmount);
   const items = sale.items.map((i) => `${i.label} ×${i.qty}`).join(", ");
 
   return (
-    <View style={styles.card}>
+    <View style={[styles.card, cancelled && styles.cardCancelled]}>
       {/* LINE 1 — the scan anchor. */}
       <View style={styles.line1}>
         <View style={styles.whoWrap}>
@@ -38,11 +46,38 @@ export function SaleRow({ sale }: { sale: SaleRecord }) {
             </View>
           )}
         </View>
-        <Text style={styles.total}>{formatMoney(total)}</Text>
+        <Text style={[styles.total, cancelled && styles.struck]}>
+          {formatMoney(total)}
+        </Text>
       </View>
 
       {/* LINE 2 — what was bought, wrapping freely rather than truncating. */}
-      <Text style={styles.items}>{items}</Text>
+      <Text style={[styles.items, cancelled && styles.struck]}>{items}</Text>
+
+      {/* The crossed-out line IS the evidence — it says what was first
+          written, and that it was caught. Hiding it would leave the book
+          unable to explain itself. */}
+      {cancelled && (
+        <View style={styles.cancelBanner}>
+          <Text style={styles.cancelTitle}>Cancelled — recorded wrongly</Text>
+          <Text style={styles.cancelBody}>
+            {sale.cancelledBy?.replacementSaleId
+              ? "Replaced by the corrected sale."
+              : "No replacement was recorded."}
+            {sale.cancelledBy?.staffName
+              ? ` Fixed by ${sale.cancelledBy.staffName}.`
+              : ""}
+          </Text>
+        </View>
+      )}
+
+      {sale.replaces && (
+        <View style={styles.replacesBanner}>
+          <Text style={styles.replacesText}>
+            This is the correction — it replaces the cancelled sale.
+          </Text>
+        </View>
+      )}
 
       {/* LINE 3 — quiet metadata, wrapping as one row. */}
       <View style={styles.meta}>
@@ -56,6 +91,17 @@ export function SaleRow({ sale }: { sale: SaleRecord }) {
         <Text style={styles.metaQuiet}>by {sale.staffName}</Text>
         <Text style={styles.metaQuiet}>{formatDateTime(sale.soldAt)}</Text>
       </View>
+
+      {onFix && !cancelled && (
+        <Pressable
+          accessibilityRole="button"
+          accessibilityLabel={`Fix this sale for ${sale.customerName}`}
+          onPress={() => onFix(sale)}
+          style={({ pressed }) => [styles.fix, pressed && styles.pressed]}
+        >
+          <Text style={styles.fixLabel}>Fix this sale</Text>
+        </Pressable>
+      )}
 
       {/* Note and photo appear ONLY when they exist, so the common sale stays
           three clean lines and the rare one carries its extras without
@@ -77,6 +123,39 @@ export function SaleRow({ sale }: { sale: SaleRecord }) {
 }
 
 const styles = StyleSheet.create({
+  cardCancelled: { opacity: 0.85, borderColor: colors.amber },
+  struck: { textDecorationLine: "line-through", color: colors.mutedLight },
+  cancelBanner: {
+    backgroundColor: colors.amberBg,
+    borderRadius: 8,
+    paddingHorizontal: 10,
+    paddingVertical: 8,
+    marginTop: 6,
+    gap: 2,
+  },
+  cancelTitle: { fontSize: 12, fontWeight: "800", color: colors.amber },
+  cancelBody: { fontSize: 11, lineHeight: 16, color: colors.muted },
+  replacesBanner: {
+    backgroundColor: colors.greenBg,
+    borderRadius: 8,
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    marginTop: 6,
+  },
+  replacesText: { fontSize: 11, fontWeight: "700", color: colors.green },
+  fix: {
+    alignSelf: "flex-start",
+    marginTop: 8,
+    minHeight: 36,
+    justifyContent: "center",
+    paddingHorizontal: 12,
+    borderRadius: 8,
+    backgroundColor: colors.neutral,
+    borderWidth: 1,
+    borderColor: colors.line,
+  },
+  fixLabel: { fontSize: 12, fontWeight: "700", color: colors.ink },
+  pressed: { opacity: 0.6 },
   card: {
     backgroundColor: colors.white,
     borderWidth: 1,

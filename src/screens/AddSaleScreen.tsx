@@ -16,7 +16,8 @@ import { ScreenHeader } from "../components/ScreenHeader";
 import { RECENT_BRAND_COUNT } from "../config/tunables";
 import { useReadyApp } from "../context/AppContext";
 import { loadCatalog, type Catalog } from "../db/queries/catalog";
-import { listRecentCylinderBrands } from "../db/queries/sales";
+import { listRecentCylinderBrands, listSales } from "../db/queries/sales";
+import { cartLinesFromSale } from "../sales/buildLines";
 import { loadFullStockMap } from "../db/queries/stock";
 import { formatMoney } from "../lib/formatMoney";
 import type { RootStackParamList } from "../navigation/types";
@@ -141,6 +142,7 @@ export function AddSaleScreen({ route, navigation }: Props) {
   const { businessId } = useReadyApp();
   const params = route.params;
   const isNewTab = params.mode === "new-tab";
+  const isCorrecting = params.mode === "correct";
 
   const [catalog, setCatalog] = useState<Catalog | null>(null);
   const [stock, setStock] = useState<Map<string, number>>(new Map());
@@ -152,6 +154,31 @@ export function AddSaleScreen({ route, navigation }: Props) {
 
   const [customerName, setCustomerName] = useState("");
   const [cart, setCart] = useState<CartLine[]>([]);
+
+  // Fixing a sale: its lines come back into the cart so she edits what was
+  // typed rather than retyping it from memory. Runs once — reseeding after
+  // she has started changing things would throw her edits away.
+  const [seeded, setSeeded] = useState(false);
+  useEffect(() => {
+    if (params.mode !== "correct" || seeded) return;
+    let cancelled = false;
+    listSales(
+      { businessId, saleIds: [params.saleId], includeCancelled: true },
+      1,
+      0
+    )
+      .then((rows) => {
+        if (cancelled || rows.length === 0) return;
+        setCart(cartLinesFromSale(rows[0].items));
+        setSeeded(true);
+      })
+      .catch((err) =>
+        console.error("[AddSale] could not load the sale to correct", err)
+      );
+    return () => {
+      cancelled = true;
+    };
+  }, [params, businessId, seeded]);
   const [picker, setPicker] = useState<OpenPicker | null>(null);
   const nextInstanceId = useRef(0);
 
@@ -364,6 +391,7 @@ export function AddSaleScreen({ route, navigation }: Props) {
       customerName:
         params.mode === "existing" ? params.customerName : customerName.trim(),
       newCustomerName: isNewTab ? customerName.trim() : null,
+      correctingSaleId: params.mode === "correct" ? params.saleId : null,
     });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [navigation, walkAway, params, customerName, isNewTab]);
@@ -375,7 +403,13 @@ export function AddSaleScreen({ route, navigation }: Props) {
     return (
       <SafeAreaView style={styles.screen} edges={["top", "left", "right"]}>
         <ScreenHeader
-          title={isNewTab ? "New tab" : `Sale · ${params.customerName}`}
+          title={
+            isCorrecting
+              ? "Fix this sale"
+              : isNewTab
+                ? "New tab"
+                : `Sale · ${params.customerName}`
+          }
           onBack={() => navigation.goBack()}
         />
         <View style={styles.errorPad}>
@@ -403,7 +437,13 @@ export function AddSaleScreen({ route, navigation }: Props) {
     <SafeAreaView style={styles.screen} edges={["top", "left", "right"]}>
       <ScreenHeader
         // Back from the build step cancels the whole sale (spec §5, Header).
-        title={isNewTab ? "New tab" : `Sale · ${params.customerName}`}
+        title={
+            isCorrecting
+              ? "Fix this sale"
+              : isNewTab
+                ? "New tab"
+                : `Sale · ${params.customerName}`
+          }
         onBack={() => navigation.goBack()}
       />
 

@@ -1,5 +1,6 @@
 import { Ionicons } from "@expo/vector-icons";
-import { useFocusEffect } from "@react-navigation/native";
+import { useFocusEffect, useNavigation } from "@react-navigation/native";
+import type { NativeStackNavigationProp } from "@react-navigation/native-stack";
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
   ActivityIndicator,
@@ -24,6 +25,9 @@ import { formatMoney } from "../../lib/formatMoney";
 import { colors } from "../../theme/colors";
 import { cardRadius, touchTarget } from "../../theme/layout";
 import { SaleRow } from "./SaleRow";
+import { correctionBlockedBecause } from "../../db/queries/corrections";
+import { useToast } from "../../components/Toast";
+import type { RootStackParamList } from "../../navigation/types";
 
 const PAGE = 30;
 
@@ -79,10 +83,48 @@ export function SalesRecordScreen() {
   // easy to hit here because every keystroke in the search box starts a query.
   const runId = useRef(0);
 
+  const navigation =
+    useNavigation<NativeStackNavigationProp<RootStackParamList>>();
+  const { showToast } = useToast();
+
+  // Why a sale cannot always be fixed: once a payment or an empty has come
+  // back against it, money and cylinders have moved on the strength of it,
+  // and cancelling would leave those pointing at something no longer
+  // counted. She is told which of the two it is rather than left guessing.
+  const fixSale = useCallback(
+    async (sale: SaleRecord) => {
+      const blocked = await correctionBlockedBecause(businessId, sale.id);
+      if (blocked === "has-repayments") {
+        showToast("Already part-paid — that one needs Edd");
+        return;
+      }
+      if (blocked === "has-returns") {
+        showToast("Empties already came back — that one needs Edd");
+        return;
+      }
+      if (blocked === "already-cancelled") {
+        showToast("This sale is already cancelled");
+        return;
+      }
+      navigation.navigate("AddSale", {
+        mode: "correct",
+        saleId: sale.id,
+        customerId: sale.customerId,
+        customerName: sale.customerName,
+      });
+    },
+    [businessId, navigation, showToast]
+  );
+
   const filter: SalesFilter = {
     businessId,
     search,
     kind,
+    // The record is the book: a cancelled sale stays visible here, crossed
+    // out. The running total above it still ignores it, because
+    // summariseSales sums goods over the same filter and the row is marked
+    // rather than counted.
+    includeCancelled: true,
     fromIso: parseDMY(fromRaw, false) ?? undefined,
     toIso: parseDMY(toRaw, true) ?? undefined,
   };
@@ -94,7 +136,12 @@ export function SalesRecordScreen() {
     const mine = ++runId.current;
     let cancelled = false;
     setExhausted(false);
-    Promise.all([listSales(filter, PAGE, 0), summariseSales(filter)])
+    Promise.all([
+      listSales(filter, PAGE, 0),
+      // The list shows cancelled sales, the TOTAL must never count them — so
+      // the summary runs the same filter with that one flag turned back off.
+      summariseSales({ ...filter, includeCancelled: false }),
+    ])
       .then(([rows, sum]) => {
         if (cancelled || mine !== runId.current) return;
         setSales(rows);
@@ -242,7 +289,7 @@ export function SalesRecordScreen() {
           { paddingBottom: 24 + insets.bottom },
         ]}
         keyboardShouldPersistTaps="handled"
-        renderItem={({ item }) => <SaleRow sale={item} />}
+        renderItem={({ item }) => <SaleRow sale={item} onFix={fixSale} />}
         ItemSeparatorComponent={() => <View style={styles.gap} />}
         onEndReached={loadMore}
         onEndReachedThreshold={0.4}

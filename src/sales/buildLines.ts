@@ -1,6 +1,7 @@
 import { computeAirtimePrice } from "../catalog/seed";
 import { generateId } from "../lib/uuid";
 import type { CartLine } from "./types";
+import type { CommodityType } from "../types/db";
 
 // The single path from picker state → cart lines.
 //
@@ -205,4 +206,45 @@ export function draftFromFlatLine(line: CartLine): FlatPickerState {
 function formatPriceInput(price: number): string {
   if (!Number.isFinite(price) || price === 0) return "";
   return String(price);
+}
+
+/**
+ * Rebuilds cart lines from a sale that was already saved.
+ *
+ * Used when correcting a mistake: the wrong sale's lines are loaded back into
+ * the cart so she edits what she typed rather than retyping the whole thing
+ * from memory. From her side it looks exactly like editing the sale — which
+ * is the point. What differs is underneath: saving writes a NEW sale and
+ * cancels the old one, rather than overwriting it.
+ *
+ * `packs` and `singles` come back null because they were never persisted —
+ * ten single cards and one pack of ten are the same ten cards at the same
+ * price (spec Part B §8), so the breakdown is a cart-time convenience only.
+ */
+export function cartLinesFromSale(
+  items: {
+    id: string;
+    commodityType: CommodityType;
+    label: string;
+    qty: number;
+    unitPrice: number;
+    isAutoPriced: boolean;
+    emptiesReturned: number | null;
+    brandOrSupplier: string | null;
+    sizeOrDenomination: string | null;
+  }[]
+): CartLine[] {
+  return items.map((item) => ({
+    key: item.id,
+    commodity: item.commodityType,
+    label: item.label,
+    brandOrSupplier: item.brandOrSupplier,
+    sizeOrDenomination: item.sizeOrDenomination,
+    qty: item.qty,
+    unitPrice: item.unitPrice,
+    isAutoPriced: item.isAutoPriced,
+    emptiesReturned: item.emptiesReturned,
+    packs: null,
+    singles: null,
+  }));
 }

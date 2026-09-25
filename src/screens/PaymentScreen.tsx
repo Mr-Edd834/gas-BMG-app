@@ -14,6 +14,7 @@ import {
 import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
 import { PrimaryButton } from "../components/Buttons";
 import { ErrorNote } from "../components/ErrorNote";
+import { cancelSale } from "../db/queries/corrections";
 import { ScreenHeader } from "../components/ScreenHeader";
 import { useToast } from "../components/Toast";
 import { useReadyApp } from "../context/AppContext";
@@ -56,6 +57,7 @@ export function PaymentScreen({ route, navigation }: Props) {
   const { showToast } = useToast();
   const insets = useSafeAreaInsets();
   const { lines, customerId, customerName, newCustomerName } = route.params;
+  const correctingSaleId = route.params.correctingSaleId ?? null;
 
   const [cash, setCash] = useState("");
   const [note, setNote] = useState("");
@@ -109,7 +111,7 @@ export function PaymentScreen({ route, navigation }: Props) {
         targetCustomerId = customer.id;
       }
 
-      await createSale({
+      const newSaleId = await createSale({
         businessId,
         customerId: targetCustomerId,
         // Automatic attribution to this phone's staff member — zero extra
@@ -126,6 +128,20 @@ export function PaymentScreen({ route, navigation }: Props) {
         receiptPhotoLocalPath: photoPath,
       });
 
+      // The correction is recorded only AFTER the replacement is safely
+      // written. If it went first and the save then failed, the shop would
+      // be left with the original cancelled and nothing standing in its
+      // place — the sale would simply have vanished.
+      if (correctingSaleId) {
+        await cancelSale({
+          businessId,
+          cancelledSaleId: correctingSaleId,
+          replacementSaleId: newSaleId,
+          reason: null,
+          staffId: staff.id,
+        });
+      }
+
       // A credit sale creates a debt, which needs its day-6 and day-7
       // reminders (spec Part C §2 §8). Not awaited: the sale is already safely
       // written, and a reminder that fails to schedule must never make a saved
@@ -136,7 +152,7 @@ export function PaymentScreen({ route, navigation }: Props) {
       navigation.dispatch(
         CommonActions.reset({ index: 0, routes: [{ name: "Tabs" }] })
       );
-      showToast("Sale saved");
+      showToast(correctingSaleId ? "Sale corrected" : "Sale saved");
     } catch (err) {
       // Reaching here means local storage itself failed, not that the phone
       // is offline — offline is this app's normal state and writes succeed
@@ -155,6 +171,7 @@ export function PaymentScreen({ route, navigation }: Props) {
     }
   }, [
     saving,
+    correctingSaleId,
     customerId,
     newCustomerName,
     businessId,

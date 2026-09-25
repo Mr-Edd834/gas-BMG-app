@@ -18,7 +18,16 @@ export type RootStackParamList = {
   // tab" (name already known).
   AddSale:
     | { mode: "new-tab" }
-    | { mode: "existing"; customerId: string; customerName: string };
+    | { mode: "existing"; customerId: string; customerName: string }
+    // Fixing a sale recorded wrongly. The old sale's lines are loaded back
+    // into the cart, so she edits what she typed. Saving writes a NEW sale
+    // and cancels the old one — see src/db/queries/corrections.ts.
+    | {
+        mode: "correct";
+        saleId: string;
+        customerId: string;
+        customerName: string;
+      };
   // Step 2. The cart travels as a param so backing out of payment returns to
   // the still-mounted build step with its cart untouched.
   Payment: {
@@ -26,6 +35,8 @@ export type RootStackParamList = {
     customerId: string | null;
     customerName: string;
     newCustomerName: string | null;
+    // Set only when fixing a mistake: the sale this one replaces.
+    correctingSaleId?: string | null;
   };
   CustomerHistory: { customerId: string; customerName: string };
   // The interleaved ledger (spec Part C §2 §6). One screen serving both
