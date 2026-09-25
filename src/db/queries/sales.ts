@@ -1,7 +1,12 @@
 import { getDb } from "../client";
 import { generateId } from "../../lib/uuid";
 import { insertStockEvent } from "./stock";
-import { liveSale, loadCorrectionsFor, type SaleCorrection } from "./corrections";
+import {
+  liveSale,
+  liveEmptyReturn,
+  loadCorrectionsFor,
+  type SaleCorrection,
+} from "./corrections";
 import type { CartLine } from "../../sales/types";
 import type { CommodityType } from "../../types/db";
 
@@ -372,8 +377,9 @@ async function hydrate(
     qty: number;
   }>(
     `SELECT sale_item_id, SUM(qty) AS qty
-     FROM empty_returns
+     FROM empty_returns er
      WHERE sale_item_id IN (SELECT id FROM sale_items WHERE sale_id IN (${placeholders}))
+       AND ${liveEmptyReturn("er")}
      GROUP BY sale_item_id`,
     ...saleRows.map((s) => s.id)
   );

@@ -1,5 +1,5 @@
 import { getDb } from "../client";
-import { liveSale } from "./corrections";
+import { liveSale, liveRepayment, liveEmptyReturn } from "./corrections";
 
 import { generateId } from "../../lib/uuid";
 import { insertStockEvent } from "./stock";
@@ -82,7 +82,8 @@ export async function listMoneyDebts(
   );
 
   const repayments = await db.getAllAsync<{ sale_id: string; amount: number }>(
-    `SELECT sale_id, amount FROM repayments WHERE business_id = ?`,
+    `SELECT sale_id, amount FROM repayments r
+     WHERE business_id = ? AND ${liveRepayment("r")}`,
     businessId
   );
 
@@ -197,7 +198,8 @@ export async function listEmptiesDebts(
   if (rows.length === 0) return [];
 
   const returns = await db.getAllAsync<{ sale_item_id: string; qty: number }>(
-    `SELECT sale_item_id, qty FROM empty_returns WHERE business_id = ?`,
+    `SELECT sale_item_id, qty FROM empty_returns er
+     WHERE business_id = ? AND ${liveEmptyReturn("er")}`,
     businessId
   );
   const returnsByItem = new Map<string, { qty: number }[]>();

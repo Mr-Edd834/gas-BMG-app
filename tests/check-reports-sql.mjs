@@ -3,26 +3,13 @@
 // numbers before the screen is built on top of them.
 import { DatabaseSync } from "node:sqlite";
 import fs from "node:fs";
+import { sqlFromSource } from "./sqlTemplates.mjs";
 
 const root = "C:/Users/Macharia/Documents/edd_y/gas BMG app";
 const src = fs.readFileSync(root + "/src/db/queries/reports.ts", "utf8");
 const schemaSrc = fs.readFileSync(root + "/src/db/schema.ts", "utf8");
 
-// The queries embed ${liveSale("s")} — the shared "ignore cancelled sales"
-// condition. Its text is read out of corrections.ts rather than copied here,
-// so the harness always runs the condition the app actually uses.
-const corrections = fs.readFileSync(root + "/src/db/queries/corrections.ts", "utf8");
-const liveSaleTpl = corrections.match(/return `(NOT EXISTS[\s\S]*?)`;/)[1];
-
-function sqlStartingWith(prefix) {
-  const i = src.indexOf("`" + prefix);
-  if (i < 0) throw new Error("SQL not found: " + prefix);
-  return src
-    .slice(i + 1, src.indexOf("`", i + 1))
-    .replace(/\$\{liveSale\("(\w+)"\)\}/g, (_, alias) =>
-      liveSaleTpl.replace(/\$\{alias\}/g, alias)
-    );
-}
+const sqlStartingWith = (prefix) => sqlFromSource(src, prefix);
 
 // Build the real schema out of schema.ts, so the queries run against the
 // actual tables rather than a hand-written approximation that might differ.

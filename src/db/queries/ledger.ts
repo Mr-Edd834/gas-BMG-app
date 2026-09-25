@@ -1,5 +1,5 @@
 import { getDb } from "../client";
-import { liveSale } from "./corrections";
+import { liveSale, liveRepayment, liveEmptyReturn } from "./corrections";
 
 import { debtPrincipal } from "../../debts/rules";
 import { listSales, type SaleRecord } from "./sales";
@@ -99,10 +99,12 @@ export async function loadCustomerAccount(
        SELECT r.id, 'repayment', r.paid_at
        FROM repayments r
        WHERE r.business_id = ? AND r.customer_id = ?
+         AND ${liveRepayment("r")}
        UNION ALL
        SELECT er.id, 'empty-return', er.returned_at
        FROM empty_returns er
        WHERE er.business_id = ? AND er.customer_id = ?
+         AND ${liveEmptyReturn("er")}
      ) ev
      ORDER BY ev.at DESC, ev.id DESC
      LIMIT ? OFFSET ?`,
@@ -348,7 +350,7 @@ export async function listMoneyLedger(
        FROM repayments r
        JOIN customers c ON c.id = r.customer_id
        LEFT JOIN staff st ON st.id = r.staff_id
-       WHERE r.business_id = ?
+       WHERE r.business_id = ? AND ${liveRepayment("r")}
          AND (? = 0 OR LOWER(c.name) LIKE ?)
      )
      ORDER BY at DESC
@@ -434,7 +436,7 @@ export async function listEmptiesLedger(
        JOIN sale_items si ON si.id = er.sale_item_id
        JOIN customers c ON c.id = er.customer_id
        LEFT JOIN staff st ON st.id = er.staff_id
-       WHERE er.business_id = ?
+       WHERE er.business_id = ? AND ${liveEmptyReturn("er")}
          AND (? = 0 OR LOWER(c.name) LIKE ?)
      )
      ORDER BY at DESC

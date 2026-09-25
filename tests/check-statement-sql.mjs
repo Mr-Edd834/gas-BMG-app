@@ -8,16 +8,13 @@ import { DatabaseSync } from "node:sqlite";
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { sqlFromSource } from "./sqlTemplates.mjs";
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const src = fs.readFileSync(ROOT + "/src/db/queries/ledger.ts", "utf8");
 const schemaSrc = fs.readFileSync(ROOT + "/src/db/schema.ts", "utf8");
 
-function sqlStartingWith(prefix) {
-  const i = src.indexOf("`" + prefix);
-  if (i < 0) throw new Error("SQL not found: " + prefix);
-  return src.slice(i + 1, src.indexOf("`", i + 1));
-}
+const sqlStartingWith = (prefix) => sqlFromSource(src, prefix);
 
 const db = new DatabaseSync(":memory:");
 for (const m of schemaSrc.matchAll(/`(CREATE (?:UNIQUE )?(?:TABLE|INDEX)[\s\S]*?)`/g)) {

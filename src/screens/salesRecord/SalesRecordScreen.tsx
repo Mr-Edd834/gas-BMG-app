@@ -25,7 +25,10 @@ import { formatMoney } from "../../lib/formatMoney";
 import { colors } from "../../theme/colors";
 import { cardRadius, touchTarget } from "../../theme/layout";
 import { SaleRow } from "./SaleRow";
-import { correctionBlockedBecause } from "../../db/queries/corrections";
+import {
+  correctionBlockedBecause,
+  correctionCarryOver,
+} from "../../db/queries/corrections";
 import { useToast } from "../../components/Toast";
 import type { RootStackParamList } from "../../navigation/types";
 
@@ -87,25 +90,30 @@ export function SalesRecordScreen() {
     useNavigation<NativeStackNavigationProp<RootStackParamList>>();
   const { showToast } = useToast();
 
-  // Why a sale cannot always be fixed: once a payment or an empty has come
-  // back against it, money and cylinders have moved on the strength of it,
-  // and cancelling would leave those pointing at something no longer
-  // counted. She is told which of the two it is rather than left guessing.
+  // A part-paid sale can still be fixed. What the customer has already handed
+  // over is carried onto the corrected sale, so 5,000 of goods against 3,000
+  // already paid simply leaves 2,000 owing — she is told that up front rather
+  // than having to work out whether it is safe to proceed.
   const fixSale = useCallback(
     async (sale: SaleRecord) => {
       const blocked = await correctionBlockedBecause(businessId, sale.id);
-      if (blocked === "has-repayments") {
-        showToast("Already part-paid — that one needs Edd");
-        return;
-      }
-      if (blocked === "has-returns") {
-        showToast("Empties already came back — that one needs Edd");
-        return;
-      }
       if (blocked === "already-cancelled") {
         showToast("This sale is already cancelled");
         return;
       }
+
+      const carry = await correctionCarryOver(businessId, sale.id);
+      if (carry.paid > 0 || carry.emptiesBack > 0) {
+        const parts: string[] = [];
+        if (carry.paid > 0) parts.push(`${formatMoney(carry.paid)} already paid`);
+        if (carry.emptiesBack > 0) {
+          parts.push(
+            `${carry.emptiesBack} ${carry.emptiesBack === 1 ? "empty" : "empties"} already back`
+          );
+        }
+        showToast(`${parts.join(" and ")} — kept on the corrected sale`);
+      }
+
       navigation.navigate("AddSale", {
         mode: "correct",
         saleId: sale.id,

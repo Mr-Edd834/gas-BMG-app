@@ -1,5 +1,5 @@
 import { getDb } from "../client";
-import { liveSale } from "./corrections";
+import { liveSale, liveRepayment, liveEmptyReturn } from "./corrections";
 
 import type { DebtHistory } from "../../reports/kpis";
 
@@ -157,7 +157,8 @@ export async function loadDebtByCommodity(
                   s.cash_amount,
                   COALESCE(SUM(li.qty * li.unit_price), 0) AS goods_total,
                   COALESCE((SELECT SUM(r.amount) FROM repayments r
-                            WHERE r.sale_id = s.id), 0) AS paid
+                            WHERE r.sale_id = s.id
+                              AND ${liveRepayment("r")}), 0) AS paid
            FROM sales s
            LEFT JOIN sale_items li ON li.sale_id = s.id
            WHERE s.business_id = ? AND ${liveSale("s")}
@@ -235,8 +236,8 @@ export async function loadPayerHistories(
     amount: number;
     paid_at: string;
   }>(
-    `SELECT sale_id, amount, paid_at FROM repayments
-     WHERE business_id = ?
+    `SELECT sale_id, amount, paid_at FROM repayments r
+     WHERE business_id = ? AND ${liveRepayment("r")}
      ORDER BY paid_at ASC`,
     businessId
   );
@@ -329,8 +330,8 @@ export async function loadEmptiesHistories(
     qty: number;
     returned_at: string;
   }>(
-    `SELECT sale_item_id, qty, returned_at FROM empty_returns
-     WHERE business_id = ?
+    `SELECT sale_item_id, qty, returned_at FROM empty_returns er
+     WHERE business_id = ? AND ${liveEmptyReturn("er")}
      ORDER BY returned_at ASC`,
     businessId
   );

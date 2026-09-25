@@ -94,12 +94,22 @@ for (const m of schemaSrc.matchAll(/`(CREATE (?:UNIQUE )?(?:TABLE|INDEX)[\s\S]*?
 
 // The real filter text, taken from corrections.ts so it cannot drift.
 const corrections = fs.readFileSync(Q + "corrections.ts", "utf8");
-const liveSaleTpl = corrections.match(/return `(NOT EXISTS[\s\S]*?)`;/)[1];
-const liveStockTpl = corrections.match(/return `(\([\s\S]*?)`;/)[1];
+// Every live* helper is picked up generically, so a filter added later is
+// substituted automatically rather than reaching SQLite as a literal
+// "${liveWhatever(...)}" and failing with "unrecognized token".
+const TEMPLATES = {};
+for (const m of corrections.matchAll(
+  /export function (live\w+)\([\s\S]*?return `([\s\S]*?)`;/g
+)) {
+  TEMPLATES[m[1]] = m[2];
+}
+
 const fill = (sql) =>
-  sql
-    .replace(/\$\{liveSale\("(\w+)"\)\}/g, (_, a) => liveSaleTpl.replace(/\$\{alias\}/g, a))
-    .replace(/\$\{liveStockEvent\("(\w+)"\)\}/g, (_, a) => liveStockTpl.replace(/\$\{alias\}/g, a));
+  sql.replace(/\$\{(live\w+)\("(\w+)"\)\}/g, (_whole, fn, alias) => {
+    const tpl = TEMPLATES[fn];
+    if (!tpl) throw new Error("no template found for " + fn);
+    return tpl.replace(/\$\{alias\}/g, alias);
+  });
 
 function sqlFrom(file, prefix) {
   const src = fs.readFileSync(Q + file, "utf8");
@@ -176,6 +186,63 @@ try {
               VALUES ('sc2',?,'wrong',NULL,NULL,'st1',?,?)`).run(B, AT, AT);
 } catch { doubleBlocked = true; }
 check("the same sale cannot be cancelled twice", doubleBlocked, true);
+
+
+// ---------------------------------------------------------------------------
+// 3. A part-paid sale, corrected — Edd's second case
+//
+// Recorded as 50,000, the customer has already paid 3,000, and the real total
+// was 5,000. After the fix they should owe 2,000, not 5,000 and not 47,000.
+// ---------------------------------------------------------------------------
+console.log("\na part-paid sale is corrected and the payment follows it:");
+
+const C2 = "c2";
+db.exec(`INSERT INTO customers (id,business_id,name,created_at,updated_at) VALUES ('${C2}','${B}','Achieng','x','x')`);
+
+function saleFor(id, itemId, customer, qty, price) {
+  db.prepare(`INSERT INTO sales (id,business_id,customer_id,staff_id,cash_amount,credit_amount,sold_at,created_at,updated_at)
+              VALUES (?,?,?,?,0,0,?,?,?)`).run(id, B, customer, "st1", AT, AT, AT);
+  db.prepare(`INSERT INTO sale_items (id,business_id,sale_id,commodity_type,label,brand_or_supplier,size_or_denomination,qty,unit_price,created_at,updated_at)
+              VALUES (?,?,?,'cylinder','K-Gas Big','K-Gas','Big',?,?,?,?)`).run(itemId, B, id, qty, price, AT, AT);
+}
+
+saleFor("overtyped", "io", C2, 1, 50000);
+db.prepare(`INSERT INTO repayments (id,business_id,sale_id,customer_id,staff_id,amount,paid_at,created_at,updated_at)
+            VALUES ('pay1',?,'overtyped',?, 'st1', 3000, ?, ?, ?)`).run(B, C2, AT, AT, AT);
+
+// She fixes it: a new 5,000 sale, the old one cancelled, and the 3,000 copied
+// across exactly as cancelSale does it.
+saleFor("fixed", "if", C2, 1, 5000);
+db.prepare(`INSERT INTO sale_corrections (id,business_id,cancelled_sale_id,replacement_sale_id,reason,staff_id,created_at,updated_at)
+            VALUES ('sc9',?,'overtyped','fixed','typed an extra zero','st1',?,?)`).run(B, AT, AT);
+db.prepare(`INSERT INTO repayments (id,business_id,sale_id,customer_id,staff_id,amount,paid_at,created_at,updated_at)
+            VALUES ('pay1copy',?,'fixed',?, 'st1', 3000, ?, ?, ?)`).run(B, C2, AT, AT, AT);
+
+const liveSales = db.prepare(moneySql).all(B).filter((r) => r.customer_id === C2);
+check("only the corrected sale is counted", liveSales.map((r) => r.id), ["fixed"]);
+
+const repaySql = sqlFrom("debts.ts", "SELECT sale_id, amount FROM repayments");
+const paidRows = db.prepare(repaySql).all(B);
+check("the 3,000 is counted ONCE, not twice",
+  paidRows.filter((r) => r.amount === 3000).length, 1);
+check("and it is attached to the corrected sale",
+  paidRows.find((r) => r.amount === 3000).sale_id, "fixed");
+
+// The figure that matters: goods minus cash minus paid.
+const goods = db.prepare(
+  `SELECT COALESCE(SUM(qty * unit_price),0) AS t FROM sale_items WHERE sale_id = 'fixed'`
+).get().t;
+const paid = paidRows.filter((r) => r.sale_id === "fixed").reduce((s, r) => s + r.amount, 0);
+check("the customer owes 2,000", goods - paid, 2000);
+
+// And the same money must not still be sitting on the cancelled sale.
+check("nothing is owed on the cancelled sale",
+  paidRows.some((r) => r.sale_id === "overtyped"), false);
+
+// Reports must agree — settle speed reads repayments too.
+const settleRepaySql = sqlFrom("reports.ts", "SELECT sale_id, amount, paid_at FROM repayments");
+check("settle speed also sees the payment once",
+  db.prepare(settleRepaySql).all(B).filter((r) => r.amount === 3000).length, 1);
 
 console.log(`\n${pass} passed, ${fails.length} failed`);
 if (fails.length) process.exit(1);

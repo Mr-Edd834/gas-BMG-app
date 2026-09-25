@@ -48,56 +48,101 @@ export interface SaleCorrection {
   at: string;
 }
 
-export type CorrectionBlock =
-  | "already-cancelled"
-  | "has-repayments"
-  | "has-returns"
-  | null;
+/**
+ * The same rule again, for payments and returns attached to a sale.
+ *
+ * When a sale is corrected, its payments and returned empties are COPIED onto
+ * the replacement (see cancelSale). These two conditions retire the originals,
+ * so the 3,000 someone paid is counted once against the corrected sale and not
+ * twice across both.
+ */
+export function liveRepayment(alias = "r"): string {
+  return `NOT EXISTS (SELECT 1 FROM sale_corrections sc
+                      WHERE sc.cancelled_sale_id = ${alias}.sale_id)`;
+}
+
+export function liveEmptyReturn(alias = "er"): string {
+  return `NOT EXISTS (SELECT 1 FROM sale_items si
+                      JOIN sale_corrections sc ON sc.cancelled_sale_id = si.sale_id
+                      WHERE si.id = ${alias}.sale_item_id)`;
+}
+
+export type CorrectionBlock = "already-cancelled" | null;
 
 /**
- * Whether this sale can still be corrected, and if not, why.
+ * Whether this sale can still be corrected.
  *
- * Two deliberate refusals. A sale that has already been paid against, or had
- * empties brought back against it, is no longer a standalone mistake — money
- * and cylinders have moved on the strength of it, and cancelling it would
- * leave those payments pointing at something that is no longer counted.
+ * Only one refusal now: a sale already cancelled cannot be cancelled twice.
  *
- * That case is rarer and messier, and it belongs in a conversation rather
- * than behind a button. The screen says which of the two it is, so she is not
- * left guessing why a button will not work.
+ * It used to refuse a sale that had been part-paid, or had empties returned
+ * against it — on the reasoning that money had moved on the strength of it.
+ * Edd pushed back, and he was right: those payments were real, and what the
+ * customer actually owes is simply the corrected total minus what they have
+ * already handed over. Refusing was making the app's bookkeeping the
+ * shopkeeper's problem. The payments are carried across instead — see
+ * `cancelSale`.
  */
 export async function correctionBlockedBecause(
-  businessId: string,
+  _businessId: string,
   saleId: string
 ): Promise<CorrectionBlock> {
   const db = await getDb();
-
   const cancelled = await db.getFirstAsync<{ n: number }>(
     "SELECT COUNT(*) AS n FROM sale_corrections WHERE cancelled_sale_id = ?",
     saleId
   );
-  if ((cancelled?.n ?? 0) > 0) return "already-cancelled";
+  return (cancelled?.n ?? 0) > 0 ? "already-cancelled" : null;
+}
 
-  const repaid = await db.getFirstAsync<{ n: number }>(
-    "SELECT COUNT(*) AS n FROM repayments WHERE business_id = ? AND sale_id = ?",
+/** What a correction will carry over, so the screen can say so beforehand. */
+export async function correctionCarryOver(
+  businessId: string,
+  saleId: string
+): Promise<{ paid: number; payments: number; emptiesBack: number }> {
+  const db = await getDb();
+
+  const money = await db.getFirstAsync<{ total: number; n: number }>(
+    `SELECT COALESCE(SUM(amount), 0) AS total, COUNT(*) AS n
+     FROM repayments WHERE business_id = ? AND sale_id = ?`,
     businessId,
     saleId
   );
-  if ((repaid?.n ?? 0) > 0) return "has-repayments";
-
-  const returned = await db.getFirstAsync<{ n: number }>(
-    `SELECT COUNT(*) AS n FROM empty_returns er
+  const empties = await db.getFirstAsync<{ total: number }>(
+    `SELECT COALESCE(SUM(er.qty), 0) AS total
+     FROM empty_returns er
      JOIN sale_items si ON si.id = er.sale_item_id
      WHERE er.business_id = ? AND si.sale_id = ?`,
     businessId,
     saleId
   );
-  if ((returned?.n ?? 0) > 0) return "has-returns";
 
-  return null;
+  return {
+    paid: money?.total ?? 0,
+    payments: money?.n ?? 0,
+    emptiesBack: empties?.total ?? 0,
+  };
 }
 
-/** Records the cancellation. Append-only; nothing else is touched. */
+/**
+ * Records the cancellation, and carries the customer's payments and returned
+ * empties over to the replacement.
+ *
+ * The case this exists for, in Edd's words: a sale is recorded as 50,000 when
+ * it should have been 5,000, the customer has already paid 3,000, and after
+ * the correction they should owe 2,000. That falls out by itself once the
+ * 3,000 is attached to the corrected sale — because what is owed is always
+ * worked out as the goods minus what has been paid (G1), never stored.
+ *
+ * The originals are not moved, edited or deleted. They stay attached to the
+ * cancelled sale, where `liveRepayment` and `liveEmptyReturn` retire them, and
+ * a COPY carrying the same amount, the same date and the same staff member is
+ * attached to the replacement. The customer's statement therefore reads the
+ * same as it did before the mistake was noticed — the payment still sits on
+ * the day it was actually made.
+ *
+ * All in one transaction: a correction that cancelled a sale and then failed
+ * to carry a payment across would lose that money outright.
+ */
 export async function cancelSale(input: {
   businessId: string;
   cancelledSaleId: string;
@@ -108,20 +153,123 @@ export async function cancelSale(input: {
   const db = await getDb();
   const now = new Date().toISOString();
 
-  await db.runAsync(
-    `INSERT INTO sale_corrections
-       (id, business_id, cancelled_sale_id, replacement_sale_id, reason,
-        staff_id, created_at, updated_at, synced)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0)`,
-    generateId(),
-    input.businessId,
-    input.cancelledSaleId,
-    input.replacementSaleId,
-    input.reason,
-    input.staffId,
-    now,
-    now
-  );
+  await db.withTransactionAsync(async () => {
+    await db.runAsync(
+      `INSERT INTO sale_corrections
+         (id, business_id, cancelled_sale_id, replacement_sale_id, reason,
+          staff_id, created_at, updated_at, synced)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0)`,
+      generateId(),
+      input.businessId,
+      input.cancelledSaleId,
+      input.replacementSaleId,
+      input.reason,
+      input.staffId,
+      now,
+      now
+    );
+
+    if (!input.replacementSaleId) return;
+
+    // --- payments ----------------------------------------------------------
+    const payments = await db.getAllAsync<{
+      customer_id: string;
+      staff_id: string;
+      amount: number;
+      paid_at: string;
+    }>(
+      `SELECT customer_id, staff_id, amount, paid_at FROM repayments
+       WHERE business_id = ? AND sale_id = ?
+       ORDER BY paid_at ASC`,
+      input.businessId,
+      input.cancelledSaleId
+    );
+
+    for (const p of payments) {
+      await db.runAsync(
+        `INSERT INTO repayments
+           (id, business_id, sale_id, customer_id, staff_id, amount, paid_at,
+            created_at, updated_at, synced)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 0)`,
+        generateId(),
+        input.businessId,
+        input.replacementSaleId,
+        p.customer_id,
+        // Keeps the person who actually took the money, not whoever is
+        // holding the phone during the correction.
+        p.staff_id,
+        p.amount,
+        p.paid_at,
+        now,
+        now
+      );
+    }
+
+    // --- returned empties ---------------------------------------------------
+    // Matched by brand and size rather than by line id, because the
+    // replacement's lines are new rows. Capped at what the corrected sale
+    // actually says was taken: if she fixes 3 cylinders down to 2, at most 2
+    // empties can be outstanding against it, so at most 2 can come back.
+    const returns = await db.getAllAsync<{
+      customer_id: string;
+      staff_id: string;
+      qty: number;
+      returned_at: string;
+      brand: string | null;
+      size: string | null;
+    }>(
+      `SELECT er.customer_id, er.staff_id, er.qty, er.returned_at,
+              si.brand_or_supplier AS brand, si.size_or_denomination AS size
+       FROM empty_returns er
+       JOIN sale_items si ON si.id = er.sale_item_id
+       WHERE er.business_id = ? AND si.sale_id = ?
+       ORDER BY er.returned_at ASC`,
+      input.businessId,
+      input.cancelledSaleId
+    );
+    if (returns.length === 0) return;
+
+    const newLines = await db.getAllAsync<{
+      id: string;
+      brand: string | null;
+      size: string | null;
+      qty: number;
+    }>(
+      `SELECT id, brand_or_supplier AS brand, size_or_denomination AS size, qty
+       FROM sale_items WHERE sale_id = ? AND commodity_type = 'cylinder'`,
+      input.replacementSaleId
+    );
+
+    const room = new Map(newLines.map((l) => [`${l.brand}|${l.size}`, l.qty]));
+    const lineFor = new Map(newLines.map((l) => [`${l.brand}|${l.size}`, l.id]));
+
+    for (const r of returns) {
+      const key = `${r.brand}|${r.size}`;
+      const itemId = lineFor.get(key);
+      const left = room.get(key) ?? 0;
+      // The brand is no longer on the corrected sale, or it is already full.
+      if (!itemId || left <= 0) continue;
+
+      const qty = Math.min(r.qty, left);
+      room.set(key, left - qty);
+
+      await db.runAsync(
+        `INSERT INTO empty_returns
+           (id, business_id, sale_item_id, customer_id, staff_id, qty,
+            returned_at, created_at, updated_at, synced)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 0)`,
+        generateId(),
+        input.businessId,
+        itemId,
+        r.customer_id,
+        r.staff_id,
+        qty,
+        r.returned_at,
+        now,
+        now
+      );
+    }
+  });
 }
 
 /**
