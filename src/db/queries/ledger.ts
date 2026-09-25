@@ -1,4 +1,6 @@
 import { getDb } from "../client";
+import { liveSale } from "./corrections";
+
 import { debtPrincipal } from "../../debts/rules";
 import { listSales, type SaleRecord } from "./sales";
 
@@ -337,7 +339,7 @@ export async function listMoneyLedger(
        JOIN customers c ON c.id = s.customer_id
        LEFT JOIN staff st ON st.id = s.staff_id
        ${GOODS_JOIN}
-       WHERE s.business_id = ?
+       WHERE s.business_id = ? AND ${liveSale("s")}
          AND (COALESCE(goods.total, 0) - s.cash_amount) > 0
          AND (? = 0 OR LOWER(c.name) LIKE ?)
        UNION ALL
@@ -422,6 +424,7 @@ export async function listEmptiesLedger(
        JOIN customers c ON c.id = s.customer_id
        LEFT JOIN staff st ON st.id = s.staff_id
        WHERE si.business_id = ? AND si.commodity_type = 'cylinder'
+         AND ${liveSale("s")}
          AND (si.qty - COALESCE(si.empties_returned, 0)) > 0
          AND (? = 0 OR LOWER(c.name) LIKE ?)
        UNION ALL

@@ -1,4 +1,5 @@
 import { getDb } from "../client";
+import { liveStockEvent } from "./corrections";
 import { generateId } from "../../lib/uuid";
 import type { StockEventType, StockScope } from "../../types/db";
 
@@ -27,7 +28,7 @@ export async function loadFullStockMap(
     `SELECT brand, size,
             SUM(CASE WHEN event_type = 'sold' THEN -qty ELSE qty END) AS qty
      FROM stock_events
-     WHERE business_id = ? AND scope = 'full'
+     WHERE business_id = ? AND scope = 'full' AND ${liveStockEvent("stock_events")}
      GROUP BY brand, size`,
     businessId
   );
@@ -57,7 +58,7 @@ export async function loadEmptyStockMap(
     `SELECT brand, size,
             SUM(CASE WHEN event_type = 'sent' THEN -qty ELSE qty END) AS qty
      FROM stock_events
-     WHERE business_id = ? AND scope = 'empty'
+     WHERE business_id = ? AND scope = 'empty' AND ${liveStockEvent("stock_events")}
      GROUP BY brand, size`,
     businessId
   );

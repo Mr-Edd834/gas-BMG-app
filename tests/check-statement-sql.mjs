@@ -20,7 +20,7 @@ function sqlStartingWith(prefix) {
 }
 
 const db = new DatabaseSync(":memory:");
-for (const m of schemaSrc.matchAll(/`(CREATE (?:TABLE|INDEX)[\s\S]*?)`/g)) {
+for (const m of schemaSrc.matchAll(/`(CREATE (?:UNIQUE )?(?:TABLE|INDEX)[\s\S]*?)`/g)) {
   db.exec(m[1]);
 }
 

@@ -1,4 +1,6 @@
 import { getDb } from "../client";
+import { liveSale } from "./corrections";
+
 import { generateId } from "../../lib/uuid";
 import type { Customer } from "../../types/db";
 
@@ -38,10 +40,13 @@ export async function listCustomerTabs(
        c.id,
        c.name,
        c.is_quick_sale,
-       (SELECT COUNT(*) FROM sales s WHERE s.customer_id = c.id) AS sale_count,
-       (SELECT s.sold_at FROM sales s WHERE s.customer_id = c.id
+       (SELECT COUNT(*) FROM sales s
+         WHERE s.customer_id = c.id AND ${liveSale("s")}) AS sale_count,
+       (SELECT s.sold_at FROM sales s
+         WHERE s.customer_id = c.id AND ${liveSale("s")}
          ORDER BY s.sold_at DESC LIMIT 1) AS last_sold_at,
-       (SELECT s.id FROM sales s WHERE s.customer_id = c.id
+       (SELECT s.id FROM sales s
+         WHERE s.customer_id = c.id AND ${liveSale("s")}
          ORDER BY s.sold_at DESC LIMIT 1) AS last_sale_id
      FROM customers c
      WHERE c.business_id = ?`,

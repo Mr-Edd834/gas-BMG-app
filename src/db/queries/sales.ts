@@ -1,6 +1,7 @@
 import { getDb } from "../client";
 import { generateId } from "../../lib/uuid";
 import { insertStockEvent } from "./stock";
+import { liveSale, loadCorrectionsFor, type SaleCorrection } from "./corrections";
 import type { CartLine } from "../../sales/types";
 import type { CommodityType } from "../../types/db";
 
@@ -134,6 +135,10 @@ export interface SaleItemRecord {
   // because without it this screen would still show the original shortfall
   // long after the cylinders had actually come back.
   emptiesReturnedLater: number;
+  // Needed to rebuild this line when a sale is corrected — the label alone
+  // cannot be taken apart reliably.
+  brandOrSupplier: string | null;
+  sizeOrDenomination: string | null;
 }
 
 export interface SaleRecord {
@@ -149,6 +154,12 @@ export interface SaleRecord {
   customerName: string;
   isQuickSale: boolean;
   items: SaleItemRecord[];
+  // Set when this sale was cancelled as a mistake. The record still SHOWS it —
+  // crossed out — because the crossing-out is the evidence. It is every money
+  // and count figure that ignores it, not the book.
+  cancelledBy: SaleCorrection | null;
+  // Set when this sale IS the correction, naming what it replaced.
+  replaces: SaleCorrection | null;
 }
 
 // Filters for the global record (spec Part C §3 §4). Applied in SQL rather
@@ -170,6 +181,10 @@ export interface SalesFilter {
   // path so items, photos and empties are attached identically to everywhere
   // else (spec §5, one data source).
   saleIds?: string[];
+  // The Sales Record and the customer statement pass true: a cancelled sale
+  // must stay visible there, struck through. Everything that COUNTS leaves
+  // this off, so a cancelled sale can never reach a total.
+  includeCancelled?: boolean;
 }
 
 // SQL shared by every sales read in the app.
@@ -186,6 +201,11 @@ export interface SalesFilter {
 function buildWhere(f: SalesFilter): { sql: string; args: (string | number)[] } {
   const clauses = ["s.business_id = ?"];
   const args: (string | number)[] = [f.businessId];
+
+  // Excluded by DEFAULT, deliberately. A query whose author never thought
+  // about cancellations gets the safe answer — a missing row — rather than a
+  // wrong total that nobody notices.
+  if (!f.includeCancelled) clauses.push(liveSale("s"));
 
   if (f.customerId) {
     clauses.push("s.customer_id = ?");
@@ -331,9 +351,12 @@ async function hydrate(
     unit_price: number;
     is_auto_priced: 0 | 1;
     empties_returned: number | null;
+    brand_or_supplier: string | null;
+    size_or_denomination: string | null;
   }>(
     `SELECT id, sale_id, commodity_type, label, qty, unit_price,
-            is_auto_priced, empties_returned
+            is_auto_priced, empties_returned,
+            brand_or_supplier, size_or_denomination
      FROM sale_items
      WHERE sale_id IN (${placeholders})
      ORDER BY created_at ASC`,
@@ -354,6 +377,9 @@ async function hydrate(
   const laterByItem = new Map<string, number>();
   for (const r of laterReturns) laterByItem.set(r.sale_item_id, r.qty);
 
+  // Which of these sales were cancelled, and which ARE a cancellation.
+  const corrections = await loadCorrectionsFor(saleRows.map((s) => s.id));
+
   const itemsBySale = new Map<string, SaleItemRecord[]>();
   for (const row of itemRows) {
     const list = itemsBySale.get(row.sale_id) ?? [];
@@ -366,6 +392,8 @@ async function hydrate(
       isAutoPriced: row.is_auto_priced === 1,
       emptiesReturned: row.empties_returned,
       emptiesReturnedLater: laterByItem.get(row.id) ?? 0,
+      brandOrSupplier: row.brand_or_supplier,
+      sizeOrDenomination: row.size_or_denomination,
     });
     itemsBySale.set(row.sale_id, list);
   }
@@ -381,6 +409,8 @@ async function hydrate(
     customerName: s.customer_name,
     isQuickSale: s.is_quick_sale === 1,
     items: itemsBySale.get(s.id) ?? [],
+    cancelledBy: corrections.cancelled.get(s.id) ?? null,
+    replaces: corrections.replacements.get(s.id) ?? null,
   }));
 }
 
@@ -417,6 +447,7 @@ export async function listRecentCylinderBrands(
      JOIN sales s ON s.id = si.sale_id
      WHERE si.business_id = ? AND si.commodity_type = 'cylinder'
        AND si.brand_or_supplier IS NOT NULL
+       AND ${liveSale("s")}
      GROUP BY si.brand_or_supplier
      ORDER BY MAX(s.sold_at) DESC
      LIMIT ?`,

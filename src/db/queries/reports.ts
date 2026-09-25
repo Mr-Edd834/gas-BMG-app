@@ -1,4 +1,6 @@
 import { getDb } from "../client";
+import { liveSale } from "./corrections";
+
 import type { DebtHistory } from "../../reports/kpis";
 
 // Reads for the Reports section (spec Part C §5 §5).
@@ -44,7 +46,7 @@ export async function loadSaleTotalsSince(
             s.cash_amount
      FROM sales s
      LEFT JOIN sale_items i ON i.sale_id = s.id
-     WHERE s.business_id = ? AND s.sold_at >= ?
+     WHERE s.business_id = ? AND s.sold_at >= ? AND ${liveSale("s")}
      GROUP BY s.id
      ORDER BY s.sold_at ASC`,
     businessId,
@@ -102,6 +104,7 @@ export async function loadProductTotals(
      FROM sale_items i
      JOIN sales s ON s.id = i.sale_id
      WHERE i.business_id = ? AND s.sold_at >= ? AND s.sold_at <= ?
+       AND ${liveSale("s")}
      GROUP BY product
      ORDER BY qty DESC`,
     businessId,
@@ -157,7 +160,7 @@ export async function loadDebtByCommodity(
                             WHERE r.sale_id = s.id), 0) AS paid
            FROM sales s
            LEFT JOIN sale_items li ON li.sale_id = s.id
-           WHERE s.business_id = ?
+           WHERE s.business_id = ? AND ${liveSale("s")}
            GROUP BY s.id) totals
        ON totals.id = i.sale_id
      WHERE i.business_id = ?
@@ -220,7 +223,7 @@ export async function loadPayerHistories(
      FROM sales s
      JOIN customers c ON c.id = s.customer_id
      LEFT JOIN sale_items i ON i.sale_id = s.id
-     WHERE s.business_id = ?
+     WHERE s.business_id = ? AND ${liveSale("s")}
      GROUP BY s.id
      ORDER BY s.sold_at ASC`,
     businessId
@@ -315,6 +318,7 @@ export async function loadEmptiesHistories(
      JOIN sales s ON s.id = si.sale_id
      JOIN customers c ON c.id = s.customer_id
      WHERE si.business_id = ? AND si.commodity_type = 'cylinder'
+       AND ${liveSale("s")}
      ORDER BY s.sold_at ASC`,
     businessId
   );

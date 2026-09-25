@@ -17,7 +17,7 @@ function sqlStartingWith(prefix) {
 // Build the real schema out of schema.ts, so the queries run against the
 // actual tables rather than a hand-written approximation that might differ.
 const db = new DatabaseSync(":memory:");
-for (const m of schemaSrc.matchAll(/`(CREATE (?:TABLE|INDEX)[\s\S]*?)`/g)) {
+for (const m of schemaSrc.matchAll(/`(CREATE (?:UNIQUE )?(?:TABLE|INDEX)[\s\S]*?)`/g)) {
   db.exec(m[1]);
 }
 

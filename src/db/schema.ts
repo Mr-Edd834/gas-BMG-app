@@ -314,6 +314,36 @@ export const SCHEMA_STATEMENTS: string[] = [
   );`,
   `CREATE INDEX IF NOT EXISTS idx_refill_photos_source ON refill_photos(source_type, source_id);`,
 
+  // A sale cancelled because it was recorded wrongly, and the sale that
+  // replaces it (2026-09-25).
+  //
+  // This is how a mistake is fixed without anything being edited or deleted.
+  // The wrong sale row is never touched; a row here says "that one is
+  // cancelled, this one replaces it", and every figure in the app ignores the
+  // cancelled sale from then on.
+  //
+  // Why not simply edit the sale: with three equal phones, a record that can
+  // be quietly rewritten cannot settle an argument. Someone could record
+  // 5,000, take the cash, and change it to 500 with nothing left to show it
+  // ever said otherwise. A cancellation leaves a permanent, visible mark
+  // naming who did it and when — which is the same reason a paper notebook
+  // crosses a line out instead of erasing it.
+  //
+  // The unique index is the integrity rule: a sale can be cancelled once.
+  `CREATE TABLE IF NOT EXISTS sale_corrections (
+    id TEXT PRIMARY KEY NOT NULL,
+    business_id TEXT NOT NULL REFERENCES businesses(id),
+    cancelled_sale_id TEXT NOT NULL REFERENCES sales(id),
+    replacement_sale_id TEXT REFERENCES sales(id),
+    reason TEXT,
+    staff_id TEXT REFERENCES staff(id),
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+    synced INTEGER NOT NULL DEFAULT 0
+  );`,
+  `CREATE UNIQUE INDEX IF NOT EXISTS idx_sale_corrections_cancelled
+     ON sale_corrections(cancelled_sale_id);`,
+
   // Per-device preferences (spec Part C §6 §5): whether reminders fire, and
   // at what hour.
   //

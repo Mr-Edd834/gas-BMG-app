@@ -1,4 +1,6 @@
 import { getDb } from "../client";
+import { liveSale } from "./corrections";
+
 import { generateId } from "../../lib/uuid";
 import { insertStockEvent } from "./stock";
 import {
@@ -61,7 +63,7 @@ export async function listMoneyDebts(
             s.cash_amount, s.sold_at
      FROM sales s
      JOIN customers c ON c.id = s.customer_id
-     WHERE s.business_id = ?
+     WHERE s.business_id = ? AND ${liveSale("s")}
      ORDER BY s.sold_at ASC`,
     businessId
   );
@@ -188,6 +190,7 @@ export async function listEmptiesDebts(
      JOIN sales s ON s.id = si.sale_id
      JOIN customers c ON c.id = s.customer_id
      WHERE si.business_id = ? AND si.commodity_type = 'cylinder'
+       AND ${liveSale("s")}
      ORDER BY s.sold_at ASC`,
     businessId
   );
