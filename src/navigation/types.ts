@@ -45,7 +45,7 @@ export type RootStackParamList = {
     // the typed numbers were wrong — so they travel with it. She can still
     // replace either, if the receipt was the part that was wrong.
     prefillNote?: string | null;
-    prefillPhoto?: string | null;
+    prefillPhotos?: string[];
   };
   CustomerHistory: { customerId: string; customerName: string };
   // The interleaved ledger (spec Part C §2 §6). One screen serving both

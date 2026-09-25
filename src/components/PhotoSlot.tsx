@@ -8,11 +8,12 @@ import { PhotoViewer } from "./PhotoViewer";
 
 // Up to three photos for one purpose (spec Part C §4 §7).
 //
-// Three is a deliberate limit, not a technical one. On unreliable connectivity
+// Four is a deliberate limit, not a technical one. On unreliable connectivity
 // each photo costs sync time and data bundle and fills the phone faster, while
-// three still covers a couple of angles plus a retake. A cap also keeps the
-// "free up space" job in Settings a rare chore rather than a routine one.
-export const PHOTO_CAP = 3;
+// four covers several angles plus a retake — raised from three by Edd after
+// using it. A cap also keeps the "free up space" job in Settings a rare chore
+// rather than a routine one.
+export const PHOTO_CAP = 4;
 
 export function PhotoSlot({
   label,
@@ -21,6 +22,7 @@ export function PhotoSlot({
   required,
   paths,
   onChange,
+  capture,
 }: {
   label: string;
   hint?: string;
@@ -35,6 +37,9 @@ export function PhotoSlot({
   required: boolean;
   paths: string[];
   onChange: (paths: string[]) => void;
+  // Which folder these belong in. Receipts and refill photos are kept apart
+  // so Settings can report and clear them separately.
+  capture?: () => Promise<{ localPath: string } | null>;
 }) {
   const [busy, setBusy] = useState(false);
   const full = paths.length >= PHOTO_CAP;
@@ -43,12 +48,12 @@ export function PhotoSlot({
     if (busy || full) return;
     setBusy(true);
     try {
-      const photo = await captureRefillPhoto();
+      const photo = await (capture ?? captureRefillPhoto)();
       if (photo) onChange([...paths, photo.localPath]);
     } finally {
       setBusy(false);
     }
-  }, [busy, full, paths, onChange]);
+  }, [busy, full, paths, onChange, capture]);
 
   const removeAt = useCallback(
     (index: number) => onChange(paths.filter((_, i) => i !== index)),

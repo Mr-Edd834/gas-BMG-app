@@ -126,7 +126,7 @@ export function SaleHistoryCard({
             ) : (
               <StatusChip tone="green" label="Empties back" />
             ))}
-          {sale.receiptPhotoLocalPath && (
+          {sale.photos.length > 0 && (
             <Ionicons
               name="camera-outline"
               size={13}
@@ -258,16 +258,17 @@ export function SaleHistoryCard({
             </Pressable>
           )}
 
-          {sale.receiptPhotoLocalPath && (
+          {sale.photos.map((uri, index) => (
             // Tappable to full screen: a receipt is only useful as evidence if
             // it can actually be read, and that is exactly when someone is
             // disputing a sale.
             <PhotoViewer
-              uri={sale.receiptPhotoLocalPath}
+              key={uri}
+              uri={uri}
               thumbStyle={styles.photo}
-              accessibilityLabel="Receipt photo for this sale"
+              accessibilityLabel={`Receipt photo ${index + 1} for this sale`}
             />
-          )}
+          ))}
 
           <Text style={styles.loggedBy}>Logged by {sale.staffName}</Text>
         </View>

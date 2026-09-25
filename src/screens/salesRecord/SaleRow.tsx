@@ -136,16 +136,16 @@ export function SaleRow({
       {/* Note and photo appear ONLY when they exist, so the common sale stays
           three clean lines and the rare one carries its extras without
           bloating every row above it. */}
-      {(sale.note || sale.receiptPhotoLocalPath) && (
+      {(sale.note || sale.photos.length > 0) && (
         <View style={styles.extras}>
           {sale.note && (
             <View style={styles.noteBox}>
               <Text style={styles.noteText}>{sale.note}</Text>
             </View>
           )}
-          {sale.receiptPhotoLocalPath && (
-            <PhotoViewer uri={sale.receiptPhotoLocalPath} size={48} />
-          )}
+          {sale.photos.map((uri) => (
+            <PhotoViewer key={uri} uri={uri} size={48} />
+          ))}
         </View>
       )}
     </View>

@@ -27,7 +27,7 @@ import {
   type MoneyDebt,
 } from "../../db/queries/debts";
 import { needsCollecting } from "../../debts/rules";
-import { formatDate } from "../../lib/formatDate";
+import { formatDate, formatDateTime } from "../../lib/formatDate";
 import { formatMoney } from "../../lib/formatMoney";
 import { syncReminders } from "../../lib/reminders";
 import { colors } from "../../theme/colors";
@@ -496,9 +496,14 @@ function MoneyCard({
         <StatusDot urgency={customer.urgency} />
         <View style={styles.cardWho}>
           <Text style={styles.cardName}>{customer.customerName}</Text>
+          {/* The date belongs on the collapsed row, not only inside it.
+              How old a debt is changes what she does about it, and having
+              to open every card to find that out is the difference between
+              scanning the list and working through it. */}
           <Text style={styles.cardMeta}>
             {customer.debts.length}{" "}
-            {customer.debts.length === 1 ? "debt" : "debts"}
+            {customer.debts.length === 1 ? "debt" : "debts"} · oldest taken{" "}
+            {formatDateTime(oldestDebt(customer.debts))}
           </Text>
         </View>
         <Text style={styles.cardTotal}>
@@ -518,7 +523,9 @@ function MoneyCard({
               <StatusDot urgency={debt.urgency} />
               <Text style={styles.debtDesc}>{debt.description}</Text>
             </View>
-            <Text style={styles.debtWhen}>Taken {formatDate(debt.soldAt)}</Text>
+            <Text style={styles.debtWhen}>
+              Taken {formatDateTime(debt.soldAt)}
+            </Text>
             <View style={styles.debtAmounts}>
               <Text style={styles.debtOwed}>
                 {formatMoney(debt.outstanding)}
@@ -547,6 +554,15 @@ function MoneyCard({
   );
 }
 
+// The earliest debt on a card — that is the one whose age matters, since
+// each debt keeps its own fixed deadline and never inherits a newer one (G3).
+function oldestDebt(debts: { soldAt: string }[]): string {
+  return debts.reduce(
+    (oldest, d) => (d.soldAt < oldest ? d.soldAt : oldest),
+    debts[0]?.soldAt ?? new Date().toISOString()
+  );
+}
+
 function EmptiesCard({
   customer,
   open,
@@ -571,7 +587,8 @@ function EmptiesCard({
           <Text style={styles.cardName}>{customer.customerName}</Text>
           <Text style={styles.cardMeta}>
             {customer.batches.length}{" "}
-            {customer.batches.length === 1 ? "batch" : "batches"}
+            {customer.batches.length === 1 ? "batch" : "batches"} · oldest
+            taken {formatDateTime(oldestDebt(customer.batches))}
           </Text>
         </View>
         <View style={styles.flameWrap}>
@@ -594,7 +611,9 @@ function EmptiesCard({
                 {batch.brand} · {batch.size}
               </Text>
             </View>
-            <Text style={styles.debtWhen}>Taken {formatDate(batch.soldAt)}</Text>
+            <Text style={styles.debtWhen}>
+              Taken {formatDateTime(batch.soldAt)}
+            </Text>
             <Text style={styles.debtOwed}>
               {batch.outstanding} out of {batch.taken}
             </Text>

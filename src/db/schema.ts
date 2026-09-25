@@ -314,6 +314,25 @@ export const SCHEMA_STATEMENTS: string[] = [
   );`,
   `CREATE INDEX IF NOT EXISTS idx_refill_photos_source ON refill_photos(source_type, source_id);`,
 
+  // Receipt photos for a sale (2026-09-26). A sale used to carry exactly one,
+  // in `sales.receipt_photo_local_path`; four is the cap now.
+  //
+  // The old column is deliberately NOT migrated or dropped. It still holds the
+  // photo for every sale recorded before this table existed, and reads merge
+  // the two — rewriting history to tidy the schema is the one thing this app
+  // never does (G4). New sales write here only.
+  `CREATE TABLE IF NOT EXISTS sale_photos (
+    id TEXT PRIMARY KEY NOT NULL,
+    business_id TEXT NOT NULL REFERENCES businesses(id),
+    sale_id TEXT NOT NULL REFERENCES sales(id),
+    local_path TEXT NOT NULL,
+    cloud_url TEXT,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+    synced INTEGER NOT NULL DEFAULT 0
+  );`,
+  `CREATE INDEX IF NOT EXISTS idx_sale_photos_sale ON sale_photos(sale_id);`,
+
   // A sale cancelled because it was recorded wrongly, and the sale that
   // replaces it (2026-09-25).
   //

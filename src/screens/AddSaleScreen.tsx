@@ -161,7 +161,7 @@ export function AddSaleScreen({ route, navigation }: Props) {
   const [seeded, setSeeded] = useState(false);
   const [cashAlreadyPaid, setCashAlreadyPaid] = useState(0);
   const [noteFromSale, setNoteFromSale] = useState<string | null>(null);
-  const [photoFromSale, setPhotoFromSale] = useState<string | null>(null);
+  const [photosFromSale, setPhotosFromSale] = useState<string[]>([]);
   useEffect(() => {
     if (params.mode !== "correct" || seeded) return;
     let cancelled = false;
@@ -176,7 +176,7 @@ export function AddSaleScreen({ route, navigation }: Props) {
         // The cash taken at the counter travels with the sale, not separately.
         setCashAlreadyPaid(rows[0].cashAmount);
         setNoteFromSale(rows[0].note);
-        setPhotoFromSale(rows[0].receiptPhotoLocalPath);
+        setPhotosFromSale(rows[0].photos);
         setSeeded(true);
       })
       .catch((err) =>
@@ -406,7 +406,7 @@ export function AddSaleScreen({ route, navigation }: Props) {
       correctingSaleId: params.mode === "correct" ? params.saleId : null,
       prefillCash: params.mode === "correct" ? cashAlreadyPaid : undefined,
       prefillNote: params.mode === "correct" ? noteFromSale : undefined,
-      prefillPhoto: params.mode === "correct" ? photoFromSale : undefined,
+      prefillPhotos: params.mode === "correct" ? photosFromSale : undefined,
     });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [navigation, walkAway, params, customerName, isNewTab]);

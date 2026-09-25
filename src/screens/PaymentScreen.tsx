@@ -3,7 +3,6 @@ import { CommonActions } from "@react-navigation/native";
 import type { NativeStackScreenProps } from "@react-navigation/native-stack";
 import { useCallback, useMemo, useState } from "react";
 import {
-  Image,
   Pressable,
   ScrollView,
   StyleSheet,
@@ -24,6 +23,7 @@ import { createSale } from "../db/queries/sales";
 import { formatDateTime } from "../lib/formatDate";
 import { formatMoney } from "../lib/formatMoney";
 import { captureReceiptPhoto } from "../lib/photos";
+import { PhotoSlot } from "../components/PhotoSlot";
 import { syncReminders } from "../lib/reminders";
 import type { RootStackParamList } from "../navigation/types";
 import { cartTotal } from "../sales/types";
@@ -72,13 +72,12 @@ export function PaymentScreen({ route, navigation }: Props) {
   // cancelled sale is hidden from the customer's statement, not carrying them
   // would quietly strip the evidence off her page.
   const [note, setNote] = useState(route.params.prefillNote ?? "");
-  const [photoPath, setPhotoPath] = useState<string | null>(
-    route.params.prefillPhoto ?? null
+  const [photoPaths, setPhotoPaths] = useState<string[]>(
+    route.params.prefillPhotos ?? []
   );
   // Non-null only when a save actually failed. Rendered near the save button
   // so the failure is impossible to miss.
   const [saveError, setSaveError] = useState<string | null>(null);
-  const [attaching, setAttaching] = useState(false);
   const [saving, setSaving] = useState(false);
 
   const total = useMemo(() => cartTotal(lines), [lines]);
@@ -92,21 +91,14 @@ export function PaymentScreen({ route, navigation }: Props) {
   // Cash beyond the value of the goods. A typo, not a negative debt.
   const overpaid = Math.max(0, cashPaid - total);
 
-  // Optional, and structurally unable to block the save: it sets a path or it
-  // doesn't, and Save sale never consults it (G8).
-  const toggleReceiptPhoto = useCallback(async () => {
-    if (photoPath !== null) {
-      setPhotoPath(null);
-      return;
-    }
-    setAttaching(true);
-    try {
-      const photo = await captureReceiptPhoto();
-      setPhotoPath(photo?.localPath ?? null);
-    } finally {
-      setAttaching(false);
-    }
-  }, [photoPath]);
+  // Photos are handled by PhotoSlot now. What used to be here was a toggle:
+  // tap to attach, tap again to REMOVE — with the same control also acting as
+  // the "photo attached" status line, so tapping it to look at the receipt
+  // silently destroyed it. Deleted outright rather than left unused, so the
+  // pattern cannot be copied from here into somewhere else.
+  //
+  // Photos remain structurally unable to block a save: the slot sets paths, and
+  // Save sale never consults them (G8).
 
 
   const saveSale = useCallback(async () => {
@@ -151,7 +143,7 @@ export function PaymentScreen({ route, navigation }: Props) {
         // this is a record of what happened, not the source of truth.
         creditAmount: onCredit,
         note: note.trim().length > 0 ? note.trim() : null,
-        receiptPhotoLocalPath: photoPath,
+        photoPaths,
       });
 
       // The correction is recorded only AFTER the replacement is safely
@@ -206,7 +198,7 @@ export function PaymentScreen({ route, navigation }: Props) {
     cashPaid,
     onCredit,
     note,
-    photoPath,
+    photoPaths,
     navigation,
     showToast,
   ]);
@@ -293,43 +285,20 @@ export function PaymentScreen({ route, navigation }: Props) {
           </View>
         )}
 
-        <Pressable
-          accessibilityRole="button"
-          accessibilityState={{ selected: photoPath !== null }}
-          disabled={attaching}
-          onPress={toggleReceiptPhoto}
-          style={[
-            styles.photoButton,
-            photoPath !== null && styles.photoButtonAttached,
-          ]}
-        >
-          <Ionicons
-            name={photoPath !== null ? "checkmark" : "camera-outline"}
-            size={16}
-            color={photoPath !== null ? colors.green : colors.mutedLight}
-          />
-          <Text
-            style={[
-              styles.photoLabel,
-              photoPath !== null && styles.photoLabelAttached,
-            ]}
-          >
-            {attaching
-              ? "Opening camera…"
-              : photoPath !== null
-                ? "Receipt photo attached"
-                : "Attach receipt photo (optional)"}
-          </Text>
-        </Pressable>
-
-        {photoPath !== null && (
-          <Image
-            source={{ uri: photoPath }}
-            style={styles.photoPreview}
-            resizeMode="cover"
-            accessibilityLabel="Attached receipt photo"
-          />
-        )}
+        {/* The old control was a single button that said "Receipt photo
+            attached" and REMOVED the photo when tapped. It read as a status
+            line, so tapping it to look at the receipt destroyed it, with no
+            warning and no way back. A photo slot keeps the two apart: the
+            thumbnail opens it, a small ✕ on the corner is the only thing
+            that removes it. */}
+        <PhotoSlot
+          label="Receipt photos"
+          hint="Optional — but they are what settles an argument later."
+          required={false}
+          paths={photoPaths}
+          onChange={setPhotoPaths}
+          capture={captureReceiptPhoto}
+        />
 
         <View style={styles.field}>
           <View style={styles.noteLabelRow}>
@@ -509,35 +478,6 @@ const styles = StyleSheet.create({
     lineHeight: 18,
     fontWeight: "600",
     color: colors.overpaid,
-  },
-  photoButton: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "center",
-    gap: 8,
-    minHeight: touchTarget,
-    borderRadius: 12,
-    borderWidth: 1,
-    borderStyle: "dashed",
-    borderColor: colors.line,
-    paddingVertical: 12,
-  },
-  photoButtonAttached: {
-    borderColor: colors.green,
-  },
-  photoLabel: {
-    fontSize: 14,
-    fontWeight: "600",
-    color: colors.mutedLight,
-  },
-  photoLabelAttached: {
-    color: colors.green,
-  },
-  photoPreview: {
-    width: "100%",
-    height: 160,
-    borderRadius: 12,
-    backgroundColor: colors.neutral,
   },
   noteLabelRow: {
     flexDirection: "row",

@@ -18,7 +18,9 @@ export interface NewSaleInput {
   cashAmount: number;
   creditAmount: number;
   note: string | null;
-  receiptPhotoLocalPath: string | null;
+  // Up to PHOTO_CAP receipt photos. The legacy single column stays NULL on
+  // every new sale; sale_photos is where a sale's photos live now.
+  photoPaths: string[];
 }
 
 // Writes a sale, its items, and the stock/empties ledger events it causes —
@@ -54,11 +56,28 @@ export async function createSale(input: NewSaleInput): Promise<string> {
       input.cashAmount,
       input.creditAmount,
       input.note,
-      input.receiptPhotoLocalPath,
+      // Left NULL: photos go to sale_photos now. The column remains only so
+      // that sales written before it existed still read correctly.
+      null,
       now,
       now,
       now
     );
+
+    for (const path of input.photoPaths) {
+      await db.runAsync(
+        `INSERT INTO sale_photos
+           (id, business_id, sale_id, local_path, cloud_url,
+            created_at, updated_at, synced)
+         VALUES (?, ?, ?, ?, NULL, ?, ?, 0)`,
+        generateId(),
+        input.businessId,
+        saleId,
+        path,
+        now,
+        now
+      );
+    }
 
     for (const line of input.lines) {
       const itemId = generateId();
@@ -152,7 +171,10 @@ export interface SaleRecord {
   cashAmount: number;
   creditAmount: number;
   note: string | null;
-  receiptPhotoLocalPath: string | null;
+  // Every receipt photo on this sale. Sales recorded before sale_photos
+  // existed have theirs merged in from the old single column, so nothing
+  // written in the past needs rewriting to be read correctly.
+  photos: string[];
   staffName: string;
   // Present on every row, used by the global record. The per-customer history
   // ignores them — it already knows whose page it is.
@@ -386,6 +408,23 @@ async function hydrate(
   const laterByItem = new Map<string, number>();
   for (const r of laterReturns) laterByItem.set(r.sale_item_id, r.qty);
 
+  // Photos for this page, newest schema first. The legacy column is merged
+  // in below, so a sale written before sale_photos existed still shows its
+  // receipt without anything being rewritten.
+  const photoRows = await db.getAllAsync<{ sale_id: string; local_path: string }>(
+    `SELECT sale_id, local_path FROM sale_photos
+     WHERE sale_id IN (${placeholders})
+     ORDER BY created_at ASC`,
+    ...saleRows.map((s) => s.id)
+  );
+  const photosBySale = new Map<string, string[]>();
+  for (const row of photoRows) {
+    photosBySale.set(row.sale_id, [
+      ...(photosBySale.get(row.sale_id) ?? []),
+      row.local_path,
+    ]);
+  }
+
   // Which of these sales were cancelled, and which ARE a cancellation.
   const corrections = await loadCorrectionsFor(saleRows.map((s) => s.id));
 
@@ -413,7 +452,10 @@ async function hydrate(
     cashAmount: s.cash_amount,
     creditAmount: s.credit_amount,
     note: s.note,
-    receiptPhotoLocalPath: s.receipt_photo_local_path,
+    photos: [
+      ...(s.receipt_photo_local_path ? [s.receipt_photo_local_path] : []),
+      ...(photosBySale.get(s.id) ?? []),
+    ],
     staffName: s.staff_name ?? "",
     customerId: s.customer_id,
     customerName: s.customer_name,
