@@ -104,6 +104,18 @@ export function PaymentScreen({ route, navigation }: Props) {
       let targetCustomerId = customerId;
       if (targetCustomerId === null) {
         if (!newCustomerName) {
+          // This used to `return` without a word, which made a real bug
+          // indistinguishable from a dead button: the correction flow arrived
+          // here with no customer and Save simply did nothing, no error, no
+          // toast, nothing in the log.
+          //
+          // A guard that cannot normally be reached still has to say so when
+          // it is. Silence is the one response that teaches nobody anything.
+          console.error(
+            "[Payment] no customer to save against — this is a bug in the flow that opened this screen"
+          );
+          setSaveError("This sale has no customer attached to it.");
+          showToast("Sale NOT saved — see the message below");
           setSaving(false);
           return;
         }

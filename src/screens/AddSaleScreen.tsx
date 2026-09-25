@@ -387,9 +387,14 @@ export function AddSaleScreen({ route, navigation }: Props) {
     setPicker(null);
     navigation.navigate("Payment", {
       lines: next.cart,
-      customerId: params.mode === "existing" ? params.customerId : null,
+      // Asked as "is this a new tab?" rather than "is this an existing one?".
+      // The two-way version broke the moment a third mode existed: a
+      // correction is not "existing", so it fell down the else branch, arrived
+      // at the payment step with no customer, and hit a guard that returned
+      // without a word — the Save button simply did nothing.
+      customerId: params.mode === "new-tab" ? null : params.customerId,
       customerName:
-        params.mode === "existing" ? params.customerName : customerName.trim(),
+        params.mode === "new-tab" ? customerName.trim() : params.customerName,
       newCustomerName: isNewTab ? customerName.trim() : null,
       correctingSaleId: params.mode === "correct" ? params.saleId : null,
     });

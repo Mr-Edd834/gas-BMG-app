@@ -1,3 +1,5 @@
+import { Ionicons } from "@expo/vector-icons";
+import { useState } from "react";
 import { Pressable, StyleSheet, Text, View } from "react-native";
 import { PhotoViewer } from "../../components/PhotoViewer";
 import { debtPrincipal, saleGoodsTotal } from "../../debts/rules";
@@ -27,6 +29,7 @@ export function SaleRow({
   onFix?: (sale: SaleRecord) => void;
 }) {
   const cancelled = sale.cancelledBy !== null;
+  const [open, setOpen] = useState(false);
   const total = saleGoodsTotal(sale.items);
   // Derived, like everywhere else — never read from the stored credit column.
   const owed = debtPrincipal(sale.items, sale.cashAmount);
@@ -92,15 +95,42 @@ export function SaleRow({
         <Text style={styles.metaQuiet}>{formatDateTime(sale.soldAt)}</Text>
       </View>
 
+      {/* Correcting a sale is rare and consequential, so it sits one tap
+          back: a quiet ⋯ on the row opens it. Visible enough that she can
+          find it without being told twice, quiet enough that it is never
+          the thing her thumb lands on while scrolling the day's takings. */}
       {onFix && !cancelled && (
-        <Pressable
-          accessibilityRole="button"
-          accessibilityLabel={`Fix this sale for ${sale.customerName}`}
-          onPress={() => onFix(sale)}
-          style={({ pressed }) => [styles.fix, pressed && styles.pressed]}
-        >
-          <Text style={styles.fixLabel}>Fix this sale</Text>
-        </Pressable>
+        <View style={styles.moreRow}>
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel={
+              open
+                ? "Hide options for this sale"
+                : `Options for ${sale.customerName}'s sale`
+            }
+            accessibilityState={{ expanded: open }}
+            onPress={() => setOpen((v) => !v)}
+            hitSlop={10}
+            style={({ pressed }) => [styles.more, pressed && styles.pressed]}
+          >
+            <Ionicons
+              name={open ? "chevron-up" : "ellipsis-horizontal"}
+              size={16}
+              color={colors.muted}
+            />
+          </Pressable>
+
+          {open && (
+            <Pressable
+              accessibilityRole="button"
+              accessibilityLabel={`Fix this sale for ${sale.customerName}`}
+              onPress={() => onFix(sale)}
+              style={({ pressed }) => [styles.fix, pressed && styles.pressed]}
+            >
+              <Text style={styles.fixLabel}>Fix this sale</Text>
+            </Pressable>
+          )}
+        </View>
       )}
 
       {/* Note and photo appear ONLY when they exist, so the common sale stays
@@ -143,9 +173,22 @@ const styles = StyleSheet.create({
     marginTop: 6,
   },
   replacesText: { fontSize: 11, fontWeight: "700", color: colors.green },
+  moreRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 10,
+    marginTop: 6,
+  },
+  more: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: colors.neutral,
+  },
   fix: {
     alignSelf: "flex-start",
-    marginTop: 8,
     minHeight: 36,
     justifyContent: "center",
     paddingHorizontal: 12,
