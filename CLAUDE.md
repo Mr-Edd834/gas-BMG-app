@@ -195,18 +195,25 @@ the failures land on him in the morning.
 
 ---
 
-## KNOWN BUGS — deferred on purpose, do not lose these
+## KNOWN BUGS
 
-- **The 500-event statement truncation is FIXED (2026-09-24).** The statement
-  now pages with a SQL `UNION ALL` over sales + repayments + empty_returns
+Nothing open. Both of the entries that lived here are fixed:
+
+- **500-event statement truncation** — fixed 2026-09-24. The statement pages
+  with a SQL `UNION ALL` over sales + repayments + empty_returns
   (`loadCustomerAccount`), verified by `tests/check-statement-sql.mjs`.
   `listCustomerSales` was deleted rather than left unused, so nobody reaches
   for a helper with a silent limit inside it.
-- **OPEN: adding a catalog item then opening add-sale can fail to read the
-  catalog.** Reported on device 2026-09-24. Two guesses at the cause were
-  wrong (statement concurrency; stale handle). Database errors now carry the
-  failing SQL into the on-screen "Technical details" panel — get that SQL
-  before theorising again.
+- **Catalog read failing after adding an item** — confirmed fixed by Edd on
+  2026-09-26, after the statement queue and stale-handle retry in
+  `src/db/client.ts`. Two guesses at the cause were wrong before the
+  instrumentation went in; database errors now carry the failing SQL into the
+  on-screen "Technical details" panel, so a recurrence names itself instead of
+  inviting a third guess.
+
+**Run `npm run check` before calling anything clean** — unit tests, typecheck,
+import cycles and all four SQL harnesses. Added after "all clean" was declared
+from a partial run while a harness was in fact broken.
 
 ## Working conventions for this project
 

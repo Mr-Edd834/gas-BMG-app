@@ -51,14 +51,17 @@ what the customer owes, revenue, best sellers, busiest days, stock — counts
 only the corrected one. The crossed-out entry is kept as evidence and counted
 nowhere.
 
-**Two cases it will refuse**, and it says which:
+**Money already paid comes with it.** If the customer had already handed over
+2,000 — at the counter or as a repayment afterwards — that 2,000 moves onto
+the corrected sale. So a sale typed as 50,000 that should have been 5,000,
+with 3,000 already paid, leaves them owing **2,000**. The app says what it is
+carrying across before she starts.
 
-- The customer has already paid something against that sale.
-- Empties have already come back against it.
+Empties already brought back come across the same way, matched to the same
+brand and size, capped at what the corrected sale says was taken.
 
-In both, money or cylinders have already moved on the strength of that sale,
-so cancelling it would leave those pointing at something the app no longer
-counts. Those are rarer and messier, and they are Edd's to sort out.
+The only thing it refuses is correcting the same sale twice. Fix the
+correction instead — it is a normal sale like any other.
 
 ### A sale against the wrong customer
 
