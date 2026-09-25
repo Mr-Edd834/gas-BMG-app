@@ -3,7 +3,6 @@ import { CommonActions } from "@react-navigation/native";
 import type { NativeStackScreenProps } from "@react-navigation/native-stack";
 import { useCallback, useMemo, useState } from "react";
 import {
-  Alert,
   Image,
   Pressable,
   ScrollView,
@@ -15,6 +14,7 @@ import {
 import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
 import { PrimaryButton } from "../components/Buttons";
 import { ErrorNote } from "../components/ErrorNote";
+import { ConfirmSheet } from "../components/ConfirmSheet";
 import { cancelSale } from "../db/queries/corrections";
 import { ScreenHeader } from "../components/ScreenHeader";
 import { useToast } from "../components/Toast";
@@ -63,11 +63,18 @@ export function PaymentScreen({ route, navigation }: Props) {
   // Fixing a sale starts with whatever cash was taken on it at the counter.
   // Left empty, a customer who paid 2,000 on a mistyped sale would owe the
   // full corrected amount — the 2,000 would simply cease to exist.
+  const [confirming, setConfirming] = useState(false);
   const [cash, setCash] = useState(
     route.params.prefillCash ? String(route.params.prefillCash) : ""
   );
-  const [note, setNote] = useState("");
-  const [photoPath, setPhotoPath] = useState<string | null>(null);
+  // A correction starts with the note and receipt from the sale being fixed.
+  // The transaction was real; only the numbers were mistyped, and since the
+  // cancelled sale is hidden from the customer's statement, not carrying them
+  // would quietly strip the evidence off her page.
+  const [note, setNote] = useState(route.params.prefillNote ?? "");
+  const [photoPath, setPhotoPath] = useState<string | null>(
+    route.params.prefillPhoto ?? null
+  );
   // Non-null only when a save actually failed. Rendered near the save button
   // so the failure is impossible to miss.
   const [saveError, setSaveError] = useState<string | null>(null);
@@ -213,19 +220,7 @@ export function PaymentScreen({ route, navigation }: Props) {
       void saveSale();
       return;
     }
-    Alert.alert(
-      "Save this correction?",
-      "The sale you are fixing will be cancelled and this one recorded in " +
-        "its place. The old one stays in the sales record, crossed out.",
-      [
-        { text: "Go back and check", style: "cancel" },
-        {
-          text: "Yes, save it",
-          style: "destructive",
-          onPress: () => void saveSale(),
-        },
-      ]
-    );
+    setConfirming(true);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [correctingSaleId, saveSale]);
 
@@ -395,6 +390,22 @@ export function PaymentScreen({ route, navigation }: Props) {
           Logged by {staff.name} · {formatDateTime(new Date())}
         </Text>
       </View>
+
+      <ConfirmSheet
+        visible={confirming}
+        title="Save this correction?"
+        body={
+          "The sale you are fixing will be cancelled and this one recorded in its place. " +
+          "The old one stays in the sales record, crossed out, so nothing is lost."
+        }
+        confirmLabel="Yes, save it"
+        cancelLabel="Go back and check"
+        onCancel={() => setConfirming(false)}
+        onConfirm={() => {
+          setConfirming(false);
+          void saveSale();
+        }}
+      />
     </SafeAreaView>
   );
 }
