@@ -40,22 +40,31 @@ A record you cannot alter is worth more than a record you can tidy.
 
 ### A sale recorded wrong
 
-Record a **correcting sale**. If a sale was entered as 500 and should have
-been 5,000, add a second sale for the 4,500 difference, and put the reason in
-its note: *"correction for this morning's K-Gas — first entry was 500 by
-mistake."*
+**Sales Record → find the sale → "Fix this sale".**
 
-The customer's balance lands where it should. Both entries stay visible, and
-anyone reading the statement can see exactly what happened and when it was
-noticed.
+The sale opens again with everything she typed already filled in. She changes
+what was wrong — the count, the price, whatever — and saves as normal.
+
+The record then shows two entries side by side: the wrong one crossed out and
+marked cancelled, and the corrected one beneath it. Every figure in the app —
+what the customer owes, revenue, best sellers, busiest days, stock — counts
+only the corrected one. The crossed-out entry is kept as evidence and counted
+nowhere.
+
+**Two cases it will refuse**, and it says which:
+
+- The customer has already paid something against that sale.
+- Empties have already come back against it.
+
+In both, money or cylinders have already moved on the strength of that sale,
+so cancelling it would leave those pointing at something the app no longer
+counts. Those are rarer and messier, and they are Edd's to sort out.
 
 ### A sale against the wrong customer
 
-Same idea, two steps. Record a correcting entry on the customer who was
-charged wrongly, and record the real sale on the right one. Note both, and
-have each note name the other.
+Same button. Fix the sale, and record the real one on the right tab.
 
-### A payment recorded that did not happen, or for the wrong amount
+### A payment recorded that did not happen
 
 Record a correcting entry in the other direction, with the reason in the note.
 Never try to make the wrong one disappear.
