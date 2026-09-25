@@ -59,7 +59,12 @@ export function PaymentScreen({ route, navigation }: Props) {
   const { lines, customerId, customerName, newCustomerName } = route.params;
   const correctingSaleId = route.params.correctingSaleId ?? null;
 
-  const [cash, setCash] = useState("");
+  // Fixing a sale starts with whatever cash was taken on it at the counter.
+  // Left empty, a customer who paid 2,000 on a mistyped sale would owe the
+  // full corrected amount — the 2,000 would simply cease to exist.
+  const [cash, setCash] = useState(
+    route.params.prefillCash ? String(route.params.prefillCash) : ""
+  );
   const [note, setNote] = useState("");
   const [photoPath, setPhotoPath] = useState<string | null>(null);
   // Non-null only when a save actually failed. Rendered near the save button

@@ -35,8 +35,12 @@ export type RootStackParamList = {
     customerId: string | null;
     customerName: string;
     newCustomerName: string | null;
-    // Set only when fixing a mistake: the sale this one replaces.
+    // Set only when fixing a mistake: the sale this one replaces, and the cash
+    // the customer had already handed over at the counter on it. That cash is
+    // part of the sale being fixed rather than a separate payment, so it has
+    // to travel with it or it simply ceases to exist.
     correctingSaleId?: string | null;
+    prefillCash?: number;
   };
   CustomerHistory: { customerId: string; customerName: string };
   // The interleaved ledger (spec Part C §2 §6). One screen serving both

@@ -159,6 +159,7 @@ export function AddSaleScreen({ route, navigation }: Props) {
   // typed rather than retyping it from memory. Runs once — reseeding after
   // she has started changing things would throw her edits away.
   const [seeded, setSeeded] = useState(false);
+  const [cashAlreadyPaid, setCashAlreadyPaid] = useState(0);
   useEffect(() => {
     if (params.mode !== "correct" || seeded) return;
     let cancelled = false;
@@ -170,6 +171,8 @@ export function AddSaleScreen({ route, navigation }: Props) {
       .then((rows) => {
         if (cancelled || rows.length === 0) return;
         setCart(cartLinesFromSale(rows[0].items));
+        // The cash taken at the counter travels with the sale, not separately.
+        setCashAlreadyPaid(rows[0].cashAmount);
         setSeeded(true);
       })
       .catch((err) =>
@@ -397,6 +400,7 @@ export function AddSaleScreen({ route, navigation }: Props) {
         params.mode === "new-tab" ? customerName.trim() : params.customerName,
       newCustomerName: isNewTab ? customerName.trim() : null,
       correctingSaleId: params.mode === "correct" ? params.saleId : null,
+      prefillCash: params.mode === "correct" ? cashAlreadyPaid : undefined,
     });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [navigation, walkAway, params, customerName, isNewTab]);

@@ -244,5 +244,68 @@ const settleRepaySql = sqlFrom("reports.ts", "SELECT sale_id, amount, paid_at FR
 check("settle speed also sees the payment once",
   db.prepare(settleRepaySql).all(B).filter((r) => r.amount === 3000).length, 1);
 
+// ---------------------------------------------------------------------------
+// 4. Cash taken at the counter survives a correction — Edd's third case
+//
+// 2 cylinders at 5,000 each = 10,000. Typed as 10,000 each = 20,000. He had
+// already handed over 2,000 cash at the counter, so the wrong sale showed
+// 18,000 owing. After the fix he must owe 8,000 — not 10,000, and the 2,000
+// must not vanish.
+//
+// This is a different kind of money from a repayment: it was taken during the
+// sale and lives on the sale row itself, so it travels by being carried into
+// the corrected sale rather than by being copied as a separate record.
+// ---------------------------------------------------------------------------
+console.log("\ncash taken at the counter survives a correction:");
+
+const C3 = "c3";
+db.exec(
+  `INSERT INTO customers (id,business_id,name,created_at,updated_at) VALUES ('${C3}','${B}','Otieno','x','x')`
+);
+
+function saleWithCash(id, itemId, qty, price, cash) {
+  db.prepare(
+    `INSERT INTO sales (id,business_id,customer_id,staff_id,cash_amount,credit_amount,sold_at,created_at,updated_at)
+     VALUES (?,?,?,?,?,0,?,?,?)`
+  ).run(id, B, C3, "st1", cash, AT, AT, AT);
+  db.prepare(
+    `INSERT INTO sale_items (id,business_id,sale_id,commodity_type,label,brand_or_supplier,size_or_denomination,qty,unit_price,created_at,updated_at)
+     VALUES (?,?,?,'cylinder','K-Gas Big','K-Gas','Big',?,?,?,?)`
+  ).run(itemId, B, id, qty, price, AT, AT);
+}
+
+saleWithCash("mistyped", "im", 2, 10000, 2000);
+const beforeRows = db.prepare(moneySql).all(B).filter((r) => r.customer_id === C3);
+check("before the fix he owes 18,000", 20000 - beforeRows[0].cash_amount, 18000);
+
+// She fixes it. The corrected sale carries the 2,000 forward, which is what
+// prefillCash puts in the payment screen's cash box.
+saleWithCash("corrected", "ic", 2, 5000, 2000);
+db.prepare(
+  `INSERT INTO sale_corrections (id,business_id,cancelled_sale_id,replacement_sale_id,reason,staff_id,created_at,updated_at)
+   VALUES ('sc10',?,'mistyped','corrected','typed 10,000 each instead of 5,000','st1',?,?)`
+).run(B, AT, AT);
+
+const afterRows = db.prepare(moneySql).all(B).filter((r) => r.customer_id === C3);
+check("only the corrected sale counts", afterRows.map((r) => r.id), ["corrected"]);
+check("the 2,000 cash came with it", afterRows[0].cash_amount, 2000);
+
+const correctedGoods = db
+  .prepare(`SELECT COALESCE(SUM(qty * unit_price),0) AS t FROM sale_items WHERE sale_id = 'corrected'`)
+  .get().t;
+check("goods are 10,000", correctedGoods, 10000);
+check("HE OWES 8,000, not 10,000", correctedGoods - afterRows[0].cash_amount, 8000);
+
+// Reports, which Edd also asked about.
+const revAll = db.prepare(revenueSql).all(B, AT);
+check("revenue no longer counts the 20,000",
+  revAll.filter((r) => r.goods_total === 20000).length, 0);
+check("revenue counts the corrected 10,000 once",
+  revAll.filter((r) => r.goods_total === 10000).length, 1);
+// Credit reliance is goods minus cash, so it follows along by itself.
+const relianceRow = revAll.find((r) => r.goods_total === 10000);
+check("credit reliance sees 8,000 on credit, not 10,000",
+  relianceRow.goods_total - relianceRow.cash_amount, 8000);
+
 console.log(`\n${pass} passed, ${fails.length} failed`);
 if (fails.length) process.exit(1);
